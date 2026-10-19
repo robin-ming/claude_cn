@@ -1,0 +1,23 @@
+[Unit]
+Description=Expose whitelist proxy only inside the Claude network namespace
+Requires=claude-cn-netns.service claude-cn-proxy.service
+After=claude-cn-netns.service claude-cn-proxy.service
+PartOf=claude-cn-netns.service claude-cn-proxy.service
+
+[Service]
+User=claude-cn-proxy
+Group=claude-cn-proxy
+NetworkNamespacePath=/run/netns/claude-cn
+ExecStart=/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/run/claude-cn/proxy.sock
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET
+
+[Install]
+WantedBy=multi-user.target

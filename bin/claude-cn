@@ -1,0 +1,8 @@
+#!/usr/bin/python3 -I
+from pathlib import Path
+import sys
+
+installed = Path('/usr/lib/claude-cn')
+sys.path.insert(0, str(installed if installed.is_dir() else Path(__file__).resolve().parents[1]))
+from claude_cn.cli import main
+main()

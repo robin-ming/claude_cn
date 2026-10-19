@@ -1,0 +1,14 @@
+Package: claude-cn
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: all
+Maintainer: claude-cn contributors <maintainers@localhost>
+Depends: python3 (>= 3.12), iproute2, nftables, iptables, iputils-ping, socat, sudo, libseccomp2, systemd, adduser, ca-certificates, procps
+Description: Generic Claude Code provider launcher with mainland egress policy
+ Runs Claude Code in a dedicated routed network namespace. Mainland and
+ configured LAN destinations allow direct TCP, UDP and ICMP. Foreign
+ destinations require explicit HTTP CONNECT domain allowlisting.
+ Includes independent provider configuration (Zhipu by default), arbitrary
+ compatible API endpoints and configurable Claude executable discovery.
+ Claude Code itself must be installed separately; no GLM wrapper is required.

@@ -1,0 +1,30 @@
+#!/bin/sh
+set -e
+case "$1" in
+  configure)
+    if ! getent passwd claude-cn-proxy >/dev/null; then
+      adduser --system --group --no-create-home --home /nonexistent --shell /usr/sbin/nologin claude-cn-proxy
+    fi
+    install -d -o claude-cn-proxy -g claude-cn-proxy -m 0755 /var/lib/claude-cn
+    if [ ! -f /var/lib/claude-cn/cn-networks.json ]; then
+      install -o claude-cn-proxy -g claude-cn-proxy -m 0644 /usr/share/claude-cn/cn-networks.json /var/lib/claude-cn/cn-networks.json
+    fi
+    chmod 0600 /etc/claude-cn/provider.json
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload
+      if [ -f /etc/claude-cn/install.json ]; then
+        # Re-register an existing installation without replacing its user key.
+        python3 -I - <<'PY'
+import json, sys
+sys.path.insert(0, '/usr/lib/claude-cn')
+from claude_cn.admin import setup
+with open('/etc/claude-cn/install.json') as stream:
+    user = json.load(stream)['user']
+setup(user)
+PY
+      fi
+    fi
+    echo 'claude-cn 已安装。首次使用：sudo claude-cn-admin setup --user 用户名'
+    ;;
+esac
+exit 0

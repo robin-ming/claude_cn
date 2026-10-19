@@ -1,0 +1,20 @@
+[Unit]
+Description=Refresh mainland IPv4 and IPv6 snapshot for Claude
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=claude-cn-proxy
+Group=claude-cn-proxy
+ExecStart=/usr/bin/python3 -I /usr/lib/claude-cn/service.py update --output /var/lib/claude-cn/cn-networks.json --download-config /etc/claude-cn/download.json
+ExecStartPost=+/usr/bin/systemctl reload claude-cn-netns.service
+ExecStartPost=+/usr/bin/systemctl try-restart claude-cn-proxy.service
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/claude-cn
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

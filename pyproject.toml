@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-cn"
+version = "0.2.0"
+description = "Generic Claude Code provider launcher with mainland direct networking and foreign allowlists"
+requires-python = ">=3.12"
+license = {file = "LICENSE"}
+readme = "README.md"
+dependencies = []
+
+[project.scripts]
+claude-cn = "claude_cn.cli:main"
+claude-cn-admin = "claude_cn.admin:main"
+
+[tool.setuptools]
+packages = ["claude_cn"]

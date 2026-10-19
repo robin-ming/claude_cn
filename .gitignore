@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+data/cn-networks.json
+config/zhipu.local.json
+config/*.local.json
+build/
+dist/
+reports/
+*.deb
+*.egg-info/
+.pytest_cache/
+.coverage

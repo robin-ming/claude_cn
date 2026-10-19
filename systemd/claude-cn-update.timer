@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily mainland IP database refresh
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

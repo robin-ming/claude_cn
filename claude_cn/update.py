@@ -1,0 +1,87 @@
+"""Fetch and atomically replace a validated IPv4 + IPv6 country snapshot."""
+import argparse
+from datetime import datetime, timezone
+import ipaddress
+import json
+import os
+from pathlib import Path
+import tempfile
+import urllib.request
+
+SOURCES = {
+    4: 'https://china-operator-ip.yfgao.com/china.txt',
+    6: 'https://china-operator-ip.yfgao.com/china6.txt',
+}
+
+
+def parse_list(text, version, minimum=1):
+    networks = []
+    for line in text.splitlines():
+        line = line.split('#', 1)[0].strip()
+        if not line:
+            continue
+        net = ipaddress.ip_network(line, strict=True)
+        if net.version != version or net.prefixlen < (8 if version == 4 else 16):
+            raise ValueError('unexpected country prefix: ' + line)
+        if not net.network_address.is_global or not net.broadcast_address.is_global:
+            raise ValueError('non-global country prefix: ' + line)
+        networks.append(net)
+    if len(networks) < minimum:
+        raise ValueError(f'incomplete IPv{version} data: {len(networks)} entries')
+    return [str(net) for net in ipaddress.collapse_addresses(networks)]
+
+
+def download_snapshot(proxy=None):
+    networks = []
+    counts = {}
+    for version, url in SOURCES.items():
+        request = urllib.request.Request(url, headers={'User-Agent': 'claude-cn-country-updater/1'})
+        # Only use an explicitly configured administrative download proxy.
+        proxies = {'http': proxy, 'https': proxy} if proxy else {}
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler(proxies))
+        with opener.open(request, timeout=30) as response:
+            raw = response.read(4_000_001)
+        if len(raw) > 4_000_000:
+            raise ValueError('country database exceeds size limit')
+        rows = parse_list(raw.decode('ascii'), version, 1000 if version == 4 else 100)
+        counts[str(version)] = len(rows)
+        networks.extend(rows)
+    return {'schema': 1, 'updated_at': datetime.now(timezone.utc).isoformat(),
+            'sources': list(SOURCES.values()), 'counts': counts, 'networks': networks}
+
+
+def atomic_write(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(data, stream, indent=2)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output', required=True)
+    parser.add_argument('--proxy', help='Explicit HTTP proxy, e.g. http://127.0.0.1:10808')
+    parser.add_argument('--download-config', help='JSON with http_proxy for database updates only')
+    args = parser.parse_args()
+    proxy = args.proxy
+    if args.download_config:
+        proxy = proxy or json.loads(Path(args.download_config).read_text()).get('http_proxy')
+    if proxy and not proxy.startswith(('http://', 'https://')):
+        parser.error('download proxy must use http:// or https://')
+    data = download_snapshot(proxy)
+    atomic_write(args.output, data)
+    print('Country snapshot updated:', json.dumps(data['counts']))
+
+
+if __name__ == '__main__':
+    main()

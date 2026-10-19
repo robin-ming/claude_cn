@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload
+fi
+if [ "$1" = purge ]; then
+  rm -f /etc/sudoers.d/claude-cn /etc/claude-cn/install.json /etc/claude-cn/resolv.conf
+  rm -f /var/lib/claude-cn/cn-networks.json
+  rmdir /etc/claude-cn /var/lib/claude-cn 2>/dev/null || true
+fi
+exit 0

@@ -1,0 +1,19 @@
+{
+  "allow_domains": [
+    "open.bigmodel.cn",
+    "github.com",
+    "*.github.com",
+    "githubusercontent.com",
+    "*.githubusercontent.com",
+    "githubassets.com",
+    "*.githubassets.com"
+  ],
+  "allow_cidrs": [
+    "192.168.8.0/24",
+    "192.168.10.0/24",
+    "10.0.0.0/8"
+  ],
+  "ports": [80, 443],
+  "connect_timeout_seconds": 10,
+  "idle_timeout_seconds": 300
+}

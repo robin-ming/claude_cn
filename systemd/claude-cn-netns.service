@@ -1,0 +1,17 @@
+[Unit]
+Description=Routed network namespace with mainland-only direct egress for Claude Code
+Wants=network-online.target
+After=network-online.target
+Before=claude-cn-relay.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory=claude-cn-network
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 -I /usr/lib/claude-cn/service.py network up
+ExecReload=/usr/bin/python3 -I /usr/lib/claude-cn/service.py network reload
+ExecStop=/usr/bin/python3 -I /usr/lib/claude-cn/service.py network down
+
+[Install]
+WantedBy=multi-user.target
