@@ -48,7 +48,7 @@ def build(output, private=False, version=None):
 
         for source in (ROOT/'claude_cn').glob('*.py'):
             copy(source, '/usr/lib/claude-cn/claude_cn/' + source.name)
-        for name in ('enter', 'payload.py', 'service.py'):
+        for name in ('payload.py', 'service.py'):
             copy(ROOT/'bin'/name, '/usr/lib/claude-cn/' + name, 0o755)
         copy(ROOT/'bin/claude-cn', '/usr/bin/claude-cn', 0o755)
         copy(ROOT/'bin/claude-cn-admin', '/usr/sbin/claude-cn-admin', 0o755)

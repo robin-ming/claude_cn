@@ -6,18 +6,18 @@
 
 ## 安装
 
-本机包 `claude-cn_0.2.0+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.2.0_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
+本机包 `claude-cn_0.3.0+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.3.0_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
 
 ```bash
 cd /home/robin/claude_whitelist
-sudo apt install ./dist/claude-cn_0.2.0+local1_all.deb
+sudo apt install ./dist/claude-cn_0.3.0+local1_all.deb
 sudo claude-cn-admin setup --user robin
 claude-cn doctor
 claude-cn --version
 claude-cn
 ```
 
-安装包不在首次安装时自动启用网络或修改用户目录；`setup` 明确注册一个运行用户、初始化独立配置并启用服务。已有供应商配置不会被覆盖。无需退出登录，日常启动无需 sudo 密码。
+安装包不在首次安装时自动启用网络或修改用户目录；`setup` 明确注册一个运行用户、初始化独立配置并启用服务。已有供应商配置不会被覆盖。无需退出登录，日常启动不调用 sudo。
 
 ```bash
 cd ~/your-project
@@ -25,6 +25,16 @@ claude-cn --resume
 claude-cn run --help          # Claude Code 自己的帮助
 claude-cn version             # 本项目版本
 ```
+
+## 无 sudo 的日常启动
+
+`claude-cn` 通过本机 Unix socket 向 `claude-cn-launch.service` 请求启动。服务用内核提供的对端 UID 核验已注册用户，子进程进入现有网络命名空间、设置 DNS，再降回该用户并安装 seccomp 后运行 Claude。root 服务不执行用户代码。
+
+交互会话使用伪终端，支持窗口尺寸、信号和终端恢复；管道保留独立的标准输入、输出和错误流。客户端断开会清理对应进程组。服务失效时拒绝启动，不回退到 sudo 或未隔离的 Claude。
+
+`claude-cn-admin` 继续负责系统管理，`setup`、`reload`、`reset` 需要管理员权限；日常启动和供应商配置不需要。
+
+从 0.2.0 升级时自动启用新服务并删除旧 `/etc/sudoers.d/claude-cn`。已有用户无需重复 setup，首次安装仍需注册用户。升级会重启有关服务，请先退出正在运行的 Claude 会话。
 
 ## Claude 安装路径
 

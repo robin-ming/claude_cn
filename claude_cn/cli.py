@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 
 from .runtime import expand_path, find_claude, read_runtime, write_settings
 
-VERSION = '0.2.0'
-HELPER = Path('/usr/lib/claude-cn/enter')
+VERSION = '0.3.0'
+BROKER_SOCKET = Path('/run/claude-cn-launch/control.sock')
 SHARE = Path('/usr/share/claude-cn')
 
 
@@ -82,22 +82,17 @@ def doctor():
     check('已注册运行用户', install_path.is_file())
     if install_path.is_file():
         check('当前用户已授权', json.loads(install_path.read_text())['uid'] == os.getuid())
-    check('特权启动器', HELPER.is_file())
+    check('后台启动服务接口', BROKER_SOCKET.is_socket())
     if Path('/run/systemd/system').exists():
-        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-relay', 'claude-cn-update.timer'):
+        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-relay', 'claude-cn-launch', 'claude-cn-update.timer'):
             result = subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', name], check=False)
             check(name, result.returncode == 0)
     raise SystemExit(int(failed))
 
 
 def launch(args):
-    if not HELPER.is_file():
-        raise SystemExit('请先安装 claude-cn deb 包，再执行 sudo claude-cn-admin setup --user 用户名。')
-    names = {'PATH', 'TERM', 'COLORTERM', 'LANG', 'LANGUAGE', 'TZ', 'EDITOR', 'VISUAL',
-             'NO_COLOR', 'FORCE_COLOR', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'}
-    env = {k: v for k, v in os.environ.items() if k in names or k.startswith('LC_')}
-    request = json.dumps({'cwd': os.getcwd(), 'env': env}, ensure_ascii=True)
-    os.execv('/usr/bin/sudo', ['sudo', '-n', '--', str(HELPER), request, '--', *args])
+    from .client import launch as broker_launch
+    return broker_launch(args)
 
 
 def main():

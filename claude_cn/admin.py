@@ -5,14 +5,13 @@ import os
 from pathlib import Path
 import pwd
 import subprocess
-import tempfile
 
 from .runtime import expand_path, read_runtime, write_settings
 
 INSTALL = Path('/etc/claude-cn/install.json')
 SEED = Path('/etc/claude-cn/provider.json')
 SUDOERS = Path('/etc/sudoers.d/claude-cn')
-UNITS = ['claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-relay.service', 'claude-cn-update.timer']
+UNITS = ['claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-relay.service', 'claude-cn-launch.service', 'claude-cn-update.timer']
 
 
 def run(args):
@@ -53,21 +52,12 @@ def setup(user):
     data = {'schema': 2, 'user': user, 'uid': account.pw_uid, 'home': account.pw_dir}
     INSTALL.write_text(json.dumps(data, indent=2) + '\n')
     INSTALL.chmod(0o644)
-    # Numeric UID avoids interpreting unusual account names as sudoers syntax.
-    content = f'#{account.pw_uid} ALL=(root) NOPASSWD: /usr/lib/claude-cn/enter\n'
-    fd, path = tempfile.mkstemp(prefix='claude-cn-sudoers-', dir='/etc/sudoers.d')
-    try:
-        with os.fdopen(fd, 'w') as stream:
-            stream.write(content)
-        os.chmod(path, 0o440)
-        run(['/usr/sbin/visudo', '-cf', path])
-        os.replace(path, SUDOERS)
-    finally:
-        if os.path.exists(path):
-            os.unlink(path)
+    # Upgrade removes the old passwordless sudo entry; runtime uses the broker.
+    SUDOERS.unlink(missing_ok=True)
     run(['/usr/bin/systemctl', 'daemon-reload'])
     run(['/usr/bin/systemctl', 'enable', *UNITS])
-    run(['/usr/bin/systemctl', 'start', *UNITS])
+    run(['/usr/bin/systemctl', 'start', *[u for u in UNITS if u != 'claude-cn-launch.service']])
+    run(['/usr/bin/systemctl', 'restart', 'claude-cn-launch.service'])
     for unit in UNITS:
         run(['/usr/bin/systemctl', 'is-active', '--quiet', unit])
     print('已启用独立 claude-cn。供应商配置：' + str(settings))
@@ -75,7 +65,7 @@ def setup(user):
 
 
 def reset():
-    run(['/usr/bin/systemctl', 'stop', 'claude-cn-update.timer', 'claude-cn-update.service',
+    run(['/usr/bin/systemctl', 'stop', 'claude-cn-launch.service', 'claude-cn-update.timer', 'claude-cn-update.service',
          'claude-cn-relay.service', 'claude-cn-proxy.service', 'claude-cn-netns.service'])
     run(['/usr/bin/systemctl', 'disable', *UNITS])
     SUDOERS.unlink(missing_ok=True)

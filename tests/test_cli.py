@@ -29,16 +29,11 @@ class CliTests(unittest.TestCase):
         self.assertIn('open.bigmodel.cn', env['ANTHROPIC_BASE_URL'])
         self.assertEqual(env['ANTHROPIC_MODEL'], 'glm-5.3[1m]')
 
-    def test_launch_forwards_args_and_no_key_in_sudo_arguments(self):
-        with patch.object(cli.Path, 'is_file', return_value=True), \
-             patch.object(cli.os, 'execv') as execute, \
-             patch.dict(cli.os.environ, {'ANTHROPIC_AUTH_TOKEN': 'must-not-forward',
-                                        'HTTPS_PROXY': 'http://untrusted:1234'}):
+    def test_launch_uses_broker_without_sudo(self):
+        with patch('claude_cn.client.launch') as launch, patch.object(cli.os, 'execv') as execute:
             cli.launch(['--resume', 'session with spaces'])
-        args = execute.call_args.args[1]
-        self.assertEqual(args[-3:], ['--', '--resume', 'session with spaces'])
-        self.assertNotIn('must-not-forward', str(args))
-        self.assertNotIn('untrusted', str(args))
+        launch.assert_called_once_with(['--resume', 'session with spaces'])
+        execute.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -3,9 +3,9 @@ set -e
 case "$1" in
   remove|upgrade|deconfigure)
     if [ -d /run/systemd/system ]; then
-      systemctl stop claude-cn-update.timer claude-cn-update.service claude-cn-relay.service claude-cn-proxy.service claude-cn-netns.service
+      systemctl stop claude-cn-launch.service claude-cn-update.timer claude-cn-update.service claude-cn-relay.service claude-cn-proxy.service claude-cn-netns.service
       if [ "$1" = remove ]; then
-        systemctl disable claude-cn-update.timer claude-cn-relay.service claude-cn-proxy.service claude-cn-netns.service
+        systemctl disable claude-cn-launch.service claude-cn-update.timer claude-cn-relay.service claude-cn-proxy.service claude-cn-netns.service
       fi
     fi
     if [ "$1" = remove ]; then

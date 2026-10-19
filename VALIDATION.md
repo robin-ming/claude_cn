@@ -1,4 +1,24 @@
-# 验证记录：0.2.0+local1
+# 验证记录：0.3.0
+
+## 本次已完成
+
+- 40 项自动化测试通过：原有网络策略、代理、seccomp、配置与路径测试，以及新增启动服务测试。
+- 新服务测试使用真实 Unix SOCK_SEQPACKET / SCM_RIGHTS 和 fork/exec，验证内核对端 UID 拒绝、服务端身份检查、请求校验、FD 类型与消息大小限制、凭据和外部代理变量过滤。
+- 客户端与测试服务实际运行：管道输入、分离 stdout/stderr、退出码、SIGTERM 转发、交互伪终端、`/dev/tty`、退出恢复终端，以及客户端被杀后的子进程清理。
+- 公共包和私有包均通过包结构、root 所有权、配置权限、凭据分布、维护脚本语法、隔离导入检查；公共包重建内容一致。新包不再包含旧 enter 辅助程序。
+- systemd 新服务定义通过 `systemd-analyze verify`。
+
+上述启动服务测试以普通用户运行测试执行器，没有使用新 root 服务或真实 Claude；测试中只替换客户端 root 身份检查及最终隔离执行器，真实 IPC、UID 拒绝、终端转接和监督逻辑未替换。
+
+## 安装后待验证
+
+当前系统仍安装 0.2.0+local1，没有自动安装新包。本次尚未完成新 root 启动服务的真实网络命名空间进入、降权、Claude 交互及模型调用测试，也尚未执行升级/卸载的完整系统生命周期测试。用户安装 0.3.0 后应重新运行 doctor、self-test、scripts/verify_installed.py，并验证实际 Claude 启动。
+
+以下为旧版本历史结果，不能作为新服务已安装测试的证据。
+
+---
+
+# 历史验证：0.2.0+local1
 
 当前主机：KDE neon / Ubuntu 24.04，Claude Code 2.1.303。用户已完成 deb 安装及 `claude-cn-admin setup --user robin`。
 

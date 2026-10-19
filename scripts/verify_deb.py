@@ -20,10 +20,11 @@ def archive(path, option):
 def verify(path, private, token):
     with archive(path, '--fsys-tarfile') as tar:
         files = {p.name.removeprefix('./'): p for p in tar.getmembers() if p.isfile()}
-        required = ['usr/bin/claude-cn', 'usr/sbin/claude-cn-admin', 'usr/lib/claude-cn/enter',
+        required = ['usr/bin/claude-cn', 'usr/sbin/claude-cn-admin', 'usr/lib/systemd/system/claude-cn-launch.service',
                     'usr/lib/claude-cn/payload.py', 'etc/claude-cn/runtime.json',
                     'etc/claude-cn/provider.json', 'usr/share/claude-cn/cn-networks.json']
         assert all(p in files for p in required), 'missing runtime files'
+        assert 'usr/lib/claude-cn/enter' not in files, 'obsolete sudo helper shipped'
         assert files['etc/claude-cn/provider.json'].mode == 0o600, 'seed mode must be 0600'
         assert all(p.uid == 0 and p.gid == 0 for p in files.values()), 'package must install as root owner'
         assert not any('claude-glm' in p or '.local.json' in p for p in files), 'old wrapper/private source leaked'
@@ -53,14 +54,14 @@ def verify(path, private, token):
                                  'import sys;sys.path.insert(0,sys.argv[1]);'
                                  'from claude_cn.cli import main;sys.argv=["claude-cn","version"];main()', lib],
                                 text=True, capture_output=True, check=True)
-        assert result.stdout.strip() == 'claude-cn 0.2.0'
+        assert result.stdout.strip() == 'claude-cn 0.3.0'
         print('PASS', path.name, 'metadata, permissions, isolated imports, credential variant, maintainer syntax')
 
 
 def main():
     token = json.loads((ROOT/'config/zhipu.local.json').read_text())['env']['ANTHROPIC_AUTH_TOKEN']
-    public = ROOT/'dist/claude-cn_0.2.0_all.deb'
-    private = ROOT/'dist/claude-cn_0.2.0+local1_all.deb'
+    public = ROOT/'dist/claude-cn_0.3.0_all.deb'
+    private = ROOT/'dist/claude-cn_0.3.0+local1_all.deb'
     verify(public, False, token)
     verify(private, True, token)
     assert private.stat().st_mode & 0o777 == 0o600

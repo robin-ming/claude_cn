@@ -2,7 +2,7 @@
 """Exercise the installed boundary as an ordinary user, without model calls.
 
 A temporary executable is selected through the documented auto PATH lookup.
-It runs after the installed helper drops root, in the real Claude namespace and
+It runs after the installed launcher drops root, in the real Claude namespace and
 under the same seccomp filter. No installed files/settings are modified.
 """
 import hashlib

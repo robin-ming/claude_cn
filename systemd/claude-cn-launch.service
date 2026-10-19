@@ -1,0 +1,21 @@
+[Unit]
+Description=Authenticated Claude CN launch broker
+# Keep sessions alive during daily proxy refresh; entry checks all boundaries.
+Wants=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service
+After=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service
+ConditionPathExists=/etc/claude-cn/install.json
+
+[Service]
+Type=notify
+User=root
+RuntimeDirectory=claude-cn-launch
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 -I /usr/lib/claude-cn/service.py launch
+Restart=on-failure
+RestartSec=2
+UMask=0077
+KillMode=control-group
+TasksMax=1024
+
+[Install]
+WantedBy=multi-user.target

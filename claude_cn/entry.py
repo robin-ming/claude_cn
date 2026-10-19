@@ -1,11 +1,11 @@
 """Root-only entry point. User-controlled code runs only after dropping root."""
 import ctypes
-import json
+import fcntl
+import termios
 import os
 from pathlib import Path
 import pwd
 import subprocess
-import sys
 
 from .guard import close_extra_fds, install as install_guard
 from .runtime import expand_path, read_runtime
@@ -21,18 +21,10 @@ def fail(message):
     raise SystemExit('claude-cn: ' + message)
 
 
-def main():
-    if os.geteuid() != 0:
-        fail('must be invoked by the installed sudo launcher')
-    config = json.loads(INSTALL_CONFIG.read_text())
-    uid = config['uid']
-    if os.environ.get('SUDO_UID') != str(uid):
-        fail('caller is not the configured user')
-    if len(sys.argv) < 3 or sys.argv[2] != '--':
-        fail('invalid launcher request')
-    request = json.loads(sys.argv[1])
-    if set(request) != {'cwd', 'env'} or not isinstance(request['env'], dict):
-        fail('invalid launcher request')
+def enter(request, args, uid, stdio, tty=False):
+    """Only called by the authenticated broker's disposable child."""
+    if os.geteuid() != 0 or uid == 0:
+        fail('invalid broker identity')
     cwd = request['cwd']
     if not isinstance(cwd, str) or not os.path.isabs(cwd):
         fail('working directory must be absolute')
@@ -92,12 +84,15 @@ def main():
     os.setuid(uid)
     if os.geteuid() != uid or os.getuid() != uid or uid == 0:
         fail('failed to drop privileges')
+    os.setsid()
+    for target, source in enumerate(stdio):
+        os.dup2(source, target, inheritable=True)
+    if tty:
+        if not os.isatty(0):
+            fail('expected terminal')
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
     os.chdir(cwd)
     close_extra_fds()
     install_guard()
     os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', str(ROOT / 'payload.py'),
-                                  *sys.argv[3:]], env)
-
-
-if __name__ == '__main__':
-    main()
+                                  *args], env)
