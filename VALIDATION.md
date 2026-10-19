@@ -10,9 +10,16 @@
 
 上述启动服务测试以普通用户运行测试执行器，没有使用新 root 服务或真实 Claude；测试中只替换客户端 root 身份检查及最终隔离执行器，真实 IPC、UID 拒绝、终端转接和监督逻辑未替换。
 
-## 安装后待验证
+## 0.3.0 安装后实测
 
-当前系统仍安装 0.2.0+local1，没有自动安装新包。本次尚未完成新 root 启动服务的真实网络命名空间进入、降权、Claude 交互及模型调用测试，也尚未执行升级/卸载的完整系统生命周期测试。用户安装 0.3.0 后应重新运行 doctor、self-test、scripts/verify_installed.py，并验证实际 Claude 启动。
+用户已安装 0.3.0+local1，doctor 全部通过，启动服务 active，Claude 本体版本 2.1.303。
+
+- `claude-cn self-test` 全通过：大陆 IPv4/IPv6、UDP/DNS、ping，境外直连拒绝、Unix socket 拒绝、代理拒绝境外 IP，百度和 GitHub 均 HTTP 200。
+- `python3 scripts/verify_installed.py` 的 19 项真实网络探针通过，包括局域网高端口 TCP/UDP、SSH 握手、境外 TCP/UDP/ICMP 内核拒绝。用户配置内容保持不变。当前结果：`reports/installed-network.json`。
+- `python3 scripts/verify_launch.py` 的 18 项实际启动检查通过，使用已安装的正式 root 服务，客户端身份检查和隔离执行器均未替换。在管道和交互 PTY 两种模式中确认 UID/EUID 都为 1000、有效 capabilities 为零、NoNewPrivs 与 seccomp 生效、专用网络命名空间、退出码传递、控制终端及终端恢复。实际进程祖先链中均无 sudo。旧 enter 和旧 sudoers 文件均已删除。结果：`reports/installed-launch-0.3.0.json`。
+- 实际 Claude 在普通捕获输出和真实终端下均正常输出版本。实际智谱调用使用禁用工具、禁用会话保存的最小请求，返回预期 `CLAUDE_CN_OK`，exit=0、is_error=false，耗时约 2.26 秒。仅保存脱敏摘要：`reports/model-smoke-0.3.0.json`。
+
+0.2.0 → 0.3.0 的实际升级、服务启动及授权迁移已验证。卸载/清理后的系统参数恢复尚未实机演练；完整交互聊天界面的长时间使用仍由正常使用观察。
 
 以下为旧版本历史结果，不能作为新服务已安装测试的证据。
 
