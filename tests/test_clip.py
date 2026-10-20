@@ -373,6 +373,39 @@ class DiscoverEnvTests(unittest.TestCase):
             self.assertEqual(found['x11']['DISPLAY'], ':0')
             self.assertEqual(found['wayland']['WAYLAND_DISPLAY'], 'wayland-0')
 
+    def entry(self, root, pid, environ, netns):
+        directory = Path(root)/pid
+        (directory/'ns').mkdir(parents=True)
+        os.symlink(netns, directory/'ns'/'net')
+        (directory/'environ').write_bytes(environ)
+
+    def test_remote_display_is_never_adopted(self):
+        # A host part means X over TCP; the daemon must not dial out for it.
+        with tempfile.TemporaryDirectory() as tmp:
+            hostile = Path(tmp)/'3'
+            hostile.mkdir()
+            (hostile/'environ').write_bytes(b'DISPLAY=evil.example.com:0\0')
+            self.assertIsNone(clip.discover_env(tmp, uid=os.getuid())['x11'])
+            self.assertTrue(clip.local_display(':0'))
+            self.assertTrue(clip.local_display('unix:1'))
+            self.assertFalse(clip.local_display('localhost:0'))
+
+    def test_sandbox_namespace_environ_is_ignored(self):
+        # Sandbox sessions share the uid; only same-network-namespace
+        # processes may supply DISPLAY or WAYLAND_DISPLAY.
+        with tempfile.TemporaryDirectory() as tmp:
+            host_netns = Path(tmp)/'host-netns'
+            host_netns.write_bytes(b'')
+            sandbox_netns = Path(tmp)/'sandbox-netns'
+            sandbox_netns.write_bytes(b'')
+            self.entry(tmp, 'self', b'', host_netns)
+            self.entry(tmp, '42', b'DISPLAY=:0\0', host_netns)
+            self.entry(tmp, '7', b'DISPLAY=evil.example.com:0\0WAYLAND_DISPLAY=wayland-7\0'
+                                 b'XDG_RUNTIME_DIR=/run/user/1000\0', sandbox_netns)
+            found = clip.discover_env(tmp, uid=os.getuid())
+            self.assertEqual(found['x11']['DISPLAY'], ':0')
+            self.assertIsNone(found['wayland'])
+
     def test_wayland_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             wayland = Path(tmp)/'7'

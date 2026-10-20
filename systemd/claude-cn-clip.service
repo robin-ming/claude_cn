@@ -21,7 +21,9 @@ ProtectHome=read-only
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_UNIX AF_INET
+# Local desktop sockets only: the daemon must never open a network socket,
+# so a forged DISPLAY cannot turn it into an egress channel.
+RestrictAddressFamilies=AF_UNIX
 KillMode=control-group
 
 [Install]

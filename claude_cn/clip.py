@@ -137,23 +137,46 @@ def wl_paste_main(argv, connect=None, out=None):
     return _bridge(f'GET {mime}' if mime else 'GET text/plain', connect, out)
 
 
+def local_display(value):
+    """Accept only hostless X displays: ':0', ':1.0', 'unix:0'.
+
+    A host part ('host:0') means a TCP connection and must never be adopted:
+    the daemon runs in the host network namespace and must not become an
+    egress channel for sandbox processes.
+    """
+    return value.rpartition(':')[0] in ('', 'unix')
+
+
+def netns_inode(base):
+    try:
+        return os.stat(f'{base}/ns/net').st_ino
+    except OSError:
+        return None
+
+
 def discover_env(proc='/proc', uid=None):
     """Collect X11 and Wayland session environments of the authorized user.
 
-    Both backends are kept: a stale DISPLAY (SSH forwarding, dead server) must
-    not hide a working Wayland clipboard, and vice versa.
+    Only processes sharing the daemon's network namespace are trusted: sandbox
+    sessions run under the same uid and could otherwise feed a forged DISPLAY
+    or WAYLAND_DISPLAY through /proc. The filter disables itself on trees
+    without a readable self/ns/net. Both backends are kept: a stale DISPLAY
+    must not hide a working Wayland clipboard, and vice versa.
     """
     found = {'x11': None, 'wayland': None}
     try:
         names = os.listdir(proc)
     except OSError:
         return found
+    own = netns_inode(Path(proc)/'self')
     for name in names:
         if not name.isdigit():
             continue
         base = Path(proc)/name
         try:
             if uid is not None and base.stat().st_uid != uid:
+                continue
+            if own is not None and netns_inode(base) != own:
                 continue
             raw = (base/'environ').read_bytes()
         except OSError:
@@ -165,7 +188,7 @@ def discover_env(proc='/proc', uid=None):
                 session[key.decode('ascii', 'replace')] = value.decode('utf-8', 'replace')
         # Separate checks: one desktop process may expose both backends
         # (XWayland), and the Wayland side must not be lost to the X11 one.
-        if not found['x11'] and session.get('DISPLAY'):
+        if not found['x11'] and session.get('DISPLAY') and local_display(session['DISPLAY']):
             found['x11'] = session
         if not found['wayland'] and session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR'):
             found['wayland'] = session
