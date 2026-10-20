@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: all
 Maintainer: claude-cn contributors <maintainers@localhost>
-Depends: python3 (>= 3.12), iproute2, nftables, iptables, iputils-ping, socat, libseccomp2, systemd, adduser, ca-certificates, procps
+Depends: python3 (>= 3.12), iproute2, nftables, iptables, iputils-ping, socat, libseccomp2, systemd, adduser, ca-certificates, procps, xclip, wl-clipboard
 Description: Generic Claude Code provider launcher with mainland egress policy
  Runs Claude Code in a dedicated routed network namespace. Mainland and
  configured LAN destinations allow direct TCP, UDP and ICMP. Foreign

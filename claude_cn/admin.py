@@ -11,7 +11,7 @@ from .runtime import expand_path, read_runtime, write_settings
 INSTALL = Path('/etc/claude-cn/install.json')
 SEED = Path('/etc/claude-cn/provider.json')
 SUDOERS = Path('/etc/sudoers.d/claude-cn')
-UNITS = ['claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-relay.service', 'claude-cn-launch.service', 'claude-cn-update.timer']
+UNITS = ['claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-clip.service', 'claude-cn-clip-relay.service', 'claude-cn-relay.service', 'claude-cn-launch.service', 'claude-cn-update.timer']
 
 
 def run(args):
@@ -66,7 +66,8 @@ def setup(user):
 
 def reset():
     run(['/usr/bin/systemctl', 'stop', 'claude-cn-launch.service', 'claude-cn-update.timer', 'claude-cn-update.service',
-         'claude-cn-relay.service', 'claude-cn-proxy.service', 'claude-cn-netns.service'])
+         'claude-cn-relay.service', 'claude-cn-clip-relay.service', 'claude-cn-clip.service',
+         'claude-cn-proxy.service', 'claude-cn-netns.service'])
     run(['/usr/bin/systemctl', 'disable', *UNITS])
     SUDOERS.unlink(missing_ok=True)
     INSTALL.unlink(missing_ok=True)

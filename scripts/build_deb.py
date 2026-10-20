@@ -52,6 +52,9 @@ def build(output, private=False, version=None):
             copy(ROOT/'bin'/name, '/usr/lib/claude-cn/' + name, 0o755)
         copy(ROOT/'bin/claude-cn', '/usr/bin/claude-cn', 0o755)
         copy(ROOT/'bin/claude-cn-admin', '/usr/sbin/claude-cn-admin', 0o755)
+        # Clipboard shims shadow the host tools inside the sandbox PATH.
+        for name in ('xclip', 'wl-paste'):
+            copy(ROOT/'bin'/'sandbox-bin'/name, '/usr/lib/claude-cn/sandbox-bin/' + name, 0o755)
         for source in (ROOT/'systemd').glob('claude-cn-*'):
             copy(source, '/usr/lib/systemd/system/' + source.name)
         for name in ('policy', 'download', 'runtime'):

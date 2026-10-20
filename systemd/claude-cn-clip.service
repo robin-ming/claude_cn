@@ -1,0 +1,26 @@
+[Unit]
+Description=Claude CN read-only clipboard bridge daemon
+ConditionPathExists=/etc/claude-cn/install.json
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=claude-cn-clip
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 -I /usr/lib/claude-cn/service.py clip --socket /run/claude-cn-clip/clip.sock
+Restart=on-failure
+RestartSec=2
+UMask=0077
+# Drops to the authorized user before running the real clipboard tool and reads
+# session environments from /proc; both need the capabilities kept here.
+CapabilityBoundingSet=CAP_SYS_PTRACE CAP_SETUID CAP_SETGID
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

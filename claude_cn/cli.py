@@ -85,7 +85,7 @@ def doctor():
         check('当前用户已授权', json.loads(install_path.read_text())['uid'] == os.getuid())
     check('后台启动服务接口', BROKER_SOCKET.is_socket())
     if Path('/run/systemd/system').exists():
-        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-relay', 'claude-cn-launch', 'claude-cn-update.timer'):
+        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-clip', 'claude-cn-clip-relay', 'claude-cn-relay', 'claude-cn-launch', 'claude-cn-update.timer'):
             result = subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', name], check=False)
             check(name, result.returncode == 0)
     raise SystemExit(int(failed))

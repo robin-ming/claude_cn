@@ -22,7 +22,9 @@ def verify(path, private, token):
     with archive(path, '--fsys-tarfile') as tar:
         files = {p.name.removeprefix('./'): p for p in tar.getmembers() if p.isfile()}
         required = ['usr/bin/claude-cn', 'usr/sbin/claude-cn-admin', 'usr/lib/systemd/system/claude-cn-launch.service',
-                    'usr/lib/claude-cn/payload.py', 'etc/claude-cn/runtime.json',
+                    'usr/lib/systemd/system/claude-cn-clip.service', 'usr/lib/systemd/system/claude-cn-clip-relay.service',
+                    'usr/lib/claude-cn/payload.py', 'usr/lib/claude-cn/sandbox-bin/xclip', 'usr/lib/claude-cn/sandbox-bin/wl-paste',
+                    'etc/claude-cn/runtime.json',
                     'etc/claude-cn/provider.json', 'usr/share/claude-cn/cn-networks.json']
         assert all(p in files for p in required), 'missing runtime files'
         assert 'usr/lib/claude-cn/enter' not in files, 'obsolete sudo helper shipped'

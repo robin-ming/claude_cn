@@ -1,8 +1,9 @@
 [Unit]
 Description=Authenticated Claude CN launch broker
 # Keep sessions alive during daily proxy refresh; entry checks all boundaries.
-Wants=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service
-After=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service
+# The clipboard bridge is optional: sessions launch fine without it.
+Wants=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service claude-cn-clip-relay.service
+After=claude-cn-netns.service claude-cn-proxy.service claude-cn-relay.service claude-cn-clip-relay.service
 ConditionPathExists=/etc/claude-cn/install.json
 
 [Service]
