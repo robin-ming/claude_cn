@@ -1,44 +1,151 @@
-# claude-cn
+<div align="center">
 
-通用的 Claude Code 供应商配置与网络控制工具，默认继承智谱 GLM 5.3 配置。可切换其他提供 Claude Code 所支持接口的供应商（通常需要 Anthropic 兼容接口）；只有 OpenAI 格式的接口需要额外转换。
+![claude-cn — Claude Code with clear network boundaries](docs/assets/hero.svg)
 
-本项目自己提供启动器、供应商配置、网络服务和 Debian 安装包，**不依赖或修改 `claude-glm`**。Claude Code 本体需另外安装，支持配置安装入口，不随包重分发。
+**为 Claude Code 配置可控的网络出口。**
 
-## 安装
+大陆 IP 直接访问 · 境外目标按白名单放行 · 独立供应商配置
 
-本机包 `claude-cn_0.4.8+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.4.8_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
+[![Version](https://img.shields.io/badge/version-0.4.8-2563eb?style=flat-square)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776ab?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Linux](https://img.shields.io/badge/platform-Linux-334155?style=flat-square&logo=linux&logoColor=white)](#快速开始)
+[![License: MIT](https://img.shields.io/badge/license-MIT-16a34a?style=flat-square)](LICENSE)
+
+[![Stars](https://img.shields.io/github/stars/robin-ming/claude_cn?style=flat-square&logo=github)](https://github.com/robin-ming/claude_cn/stargazers)
+[![Issues](https://img.shields.io/github/issues/robin-ming/claude_cn?style=flat-square)](https://github.com/robin-ming/claude_cn/issues)
+[![Last commit](https://img.shields.io/github/last-commit/robin-ming/claude_cn?style=flat-square)](https://github.com/robin-ming/claude_cn/commits/main/)
+
+[快速开始](#快速开始) · [网络策略](#网络策略) · [配置指南](#配置指南) · [剪贴板](#剪贴板粘贴) · [文档](#文档与反馈)
+
+</div>
+
+## 为什么使用 claude-cn
+
+让 Claude Code 及其子进程在专用网络命名空间中运行：大陆 IP 和指定内网可以直连，境外 IP 直连受限，白名单中的境外域名可通过代理访问。限制由内核规则执行，不依赖程序是否遵守代理环境变量。
+
+| 能力 | 说明 |
+| :--- | :--- |
+| **双栈出口控制** | IPv4 / IPv6，TCP / UDP / ICMP；命名空间与宿主接口两层 nftables 规则 |
+| **境外域名白名单** | 通过 HTTP / CONNECT 代理访问，检查 DNS 结果并连接已核验的 IP |
+| **独立供应商配置** | 默认智谱 GLM 5.3，也可配置其他 Claude Code 兼容 API |
+| **日常无需 sudo** | 首次授权后直接启动，支持交互终端、管道和恢复会话 |
+| **桌面截图粘贴** | X11 / Wayland 只读剪贴板桥接；图片默认开放，文字按需开启 |
+| **可维护的安装方式** | Debian 安装包、systemd 服务、自动 IP 库更新与诊断命令 |
+
+Claude Code 本体需另行安装。claude-cn 提供启动器和网络控制，不随包分发 Claude Code，也不依赖 `claude-glm`。
+
+## 快速开始
+
+### 1. 准备环境
+
+- 使用 apt / dpkg 和 systemd 的 Linux 系统。
+- Python **3.12 或以上**，以及已安装的 Claude Code 命令行程序。
+- 安装与首次授权需要管理员权限。
+
+### 2. 构建通用安装包
 
 ```bash
-cd ~/Storage/Project/claude_cn
-sudo apt install ./dist/claude-cn_0.4.8+local1_all.deb
-sudo claude-cn-admin setup --user robin
-claude-cn doctor
-claude-cn --version
+git clone https://github.com/robin-ming/claude_cn.git
+cd claude_cn
+
+sudo apt install python3 make dpkg-dev ca-certificates
+python3 -m claude_cn.update --output data/cn-networks.json
+make deb
+```
+
+构建使用 Python 标准库，不需要 Docker 或第三方 Python 模块。IP 快照会随包提供，安装时不必重新下载。
+
+### 3. 安装并配置
+
+在准备运行 Claude Code 的普通用户终端中执行：
+
+```bash
+sudo apt install ./dist/claude-cn_0.4.8_all.deb
+sudo claude-cn-admin setup --user "$(id -un)"
+
+claude-cn configure       # 隐藏输入供应商 API Key
+claude-cn doctor          # 检查程序入口、配置和服务
+claude-cn version
+```
+
+首次安装不会自动注册用户或启用网络；`setup` 才会初始化用户配置并启动服务。已有用户供应商配置会保留，安装包依赖由 apt 处理。
+
+### 4. 开始使用
+
+```bash
+cd /path/to/your-project
 claude-cn
+
+claude-cn --resume        # 恢复 Claude Code 会话
+claude-cn run --help      # 查看 Claude Code 帮助
+claude-cn self-test       # 检查网络边界，不调用模型 API
 ```
 
-安装包不在首次安装时自动启用网络或修改用户目录；`setup` 明确注册一个运行用户、初始化独立配置并启用服务。已有供应商配置不会被覆盖。无需退出登录，日常启动不调用 sudo。
+日常启动不需要 sudo，也无需退出登录。`claude-cn version` 显示本项目版本，`claude-cn --version` 则传给 Claude Code。
+
+## 网络策略
+
+| 目标 | 直接 TCP / UDP / ICMP | HTTP / CONNECT 代理 |
+| :--- | :---: | :---: |
+| 大陆 IPv4 / IPv6 | 允许，不限端口 | 允许所有 TCP 端口 |
+| 明确放行的内网 | 允许，不限端口 | 允许所有 TCP 端口 |
+| 境外白名单域名 | 境外 IP 直连拒绝 | 默认允许 TCP 80 / 443 |
+| 其他境外目标 | 拒绝 | 拒绝 |
+
+```mermaid
+flowchart LR
+    CLI[Claude Code 及子进程] --> NS[专用网络命名空间]
+    NS --> FW[nftables 目的 IP 检查]
+    FW --> CN[大陆 IP / 已放行内网]
+    FW --> DENY[其他目标：拒绝]
+    NS --> PROXY[HTTP / CONNECT 代理]
+    PROXY --> CHECK[目的 IP / 域名白名单检查]
+    CHECK --> ALLOW[允许的服务]
+```
+
+**默认例外。** 境外域名白名单包含 GitHub 及其相关资源域名；内网默认放行 `10.0.0.0/8`、`192.168.8.0/24` 和 `192.168.10.0/24`。请按实际环境调整，完整默认值见 [config/policy.json](config/policy.json)。
+
+修改策略后重新加载：
 
 ```bash
-cd ~/your-project
-claude-cn --resume
-claude-cn run --help          # Claude Code 自己的帮助
-claude-cn version             # 本项目版本
+sudoedit /etc/claude-cn/policy.json
+sudo claude-cn-admin reload
 ```
 
-## 无 sudo 的日常启动
+| 配置项 | 作用 |
+| :--- | :--- |
+| `allow_domains` | 境外代理域名；`*.example.com` 不包含根域名 |
+| `allow_cidrs` | 额外放行的直连 IP 网段 |
+| `ports` | 非豁免目标的代理端口，默认 `[80, 443]`；不限制内核直连规则 |
+| `allow_clipboard_text` | 是否开启桥接的文本读取，默认 `false` |
 
-`claude-cn` 通过本机 Unix socket 向 `claude-cn-launch.service` 请求启动。服务用内核提供的对端 UID 核验已注册用户，子进程进入现有网络命名空间、设置 DNS，再降回该用户并安装 seccomp 后运行 Claude。root 服务不执行用户代码。
+大陆按运营商 / BGP / 登记 IP 库判断，存在归属误差；它不是物理传输路径保证。允许服务的后续转发不在策略控制范围内，允许目的地也不等于防止内容外泄。
 
-交互会话使用伪终端，支持窗口尺寸、信号和终端恢复；管道保留独立的标准输入、输出和错误流。客户端断开会清理对应进程组。服务失效时拒绝启动，不回退到 sudo 或未隔离的 Claude。
+## 配置指南
 
-`claude-cn-admin` 继续负责系统管理，`setup`、`reload`、`reset` 需要管理员权限；日常启动和供应商配置不需要。
+### 切换供应商与模型
 
-从 0.2.0 升级时自动启用新服务并删除旧 `/etc/sudoers.d/claude-cn`。已有用户无需重复 setup，首次安装仍需注册用户。升级会重启有关服务，请先退出正在运行的 Claude 会话。
+默认 API 为 `https://open.bigmodel.cn/api/anthropic`，模型为 `glm-5.3[1m]`。也可改为其他 Claude Code 支持的供应商接口：
 
-## Claude 安装路径
+```bash
+claude-cn configure \
+  --base-url https://api.example.cn/anthropic \
+  --model your-model
+```
 
-管理员配置 `/etc/claude-cn/runtime.json`：
+API Key 交互输入，不需要写进命令行。仅提供 OpenAI 格式的服务需另行转换为 Claude Code 支持的接口。境外供应商仍需加入网络白名单，内网 API 地址需命中允许的 CIDR。
+
+| 配置文件 | 用途 | 管理方式 |
+| :--- | :--- | :--- |
+| `/etc/claude-cn/policy.json` | 网络策略、文本剪贴板开关 | 管理员 |
+| `/etc/claude-cn/runtime.json` | Claude 入口与用户配置路径 | 管理员 |
+| `/etc/claude-cn/provider.json` | 首次初始化的供应商模板 | root，`0600` |
+| `~/.config/claude-cn/settings.json` | 实际使用的地址、Key 和模型 | 当前用户，`0600` |
+
+<details>
+<summary><strong>自定义 Claude 安装入口</strong></summary>
+
+编辑 `/etc/claude-cn/runtime.json`：
 
 ```json
 {
@@ -47,113 +154,124 @@ claude-cn version             # 本项目版本
 }
 ```
 
-`auto` 每次启动依次查找调用者 PATH 中的 `claude`、`~/.local/bin/claude`、`~/.npm-global/bin/claude`、`/usr/local/bin/claude`、`/usr/bin/claude`。支持原生安装器和 npm/nvm 入口，PATH 保留，因此 npm 脚本可找到 Node。shell alias/function 不属于可执行文件查找范围。
+`auto` 依次查找调用者 PATH 中的 `claude`、`~/.local/bin/claude`、`~/.npm-global/bin/claude`、`/usr/local/bin/claude`、`/usr/bin/claude`。支持原生安装器及 npm / nvm 入口；shell alias 和 function 不作为可执行入口。
 
-也可将 `claude_path` 设置为稳定的绝对路径或 `~/...`，例如 `/opt/claude/bin/claude`。不要填固定的 `versions/2.x.x`。项目保留入口路径、不解析后锁定版本；原生安装器切换符号链接或 PATH 随 nvm 更新时自动跟随。显式配置的路径不可用时直接报错，不擅自换成其他程序。改路径无需重新安装，下一次启动读取新配置。
+也可设置稳定的绝对路径或 `~/...`，例如 `/opt/claude/bin/claude`。保留安装器的稳定入口即可，无需固定某个版本目录。显式入口不可用时会报错，不自动换用其他程序。
 
-`settings_path` 默认值可独立配置，同样支持 `~/`（按运行用户展开）。改配置位置后用 `claude-cn init` 初始化，或自行放置0600权限的配置文件。
+修改后下次启动生效。若更改 `settings_path`，用 `claude-cn init` 初始化新位置，或自行创建权限为 `0600` 的配置。
 
-## 模型供应商
+</details>
 
-默认模型和所有模型别名为 `glm-5.3[1m]`，默认地址为 `https://open.bigmodel.cn/api/anthropic`。私有包继承当前环境的临时 Key，首次 setup 复制到独立配置；后续不读取任何旧启动器或旧配置目录。
-
-三类配置分别是：
-
-| 文件 | 用途 |
-|---|---|
-| `/etc/claude-cn/runtime.json` | Claude 程序与用户供应商配置路径 |
-| `/etc/claude-cn/provider.json` | 首次初始化用的供应商种子，root 0600 |
-| `~/.config/claude-cn/settings.json` | 实际使用的供应商地址、Key、模型，用户 0600 |
-
-修改 Key（隐藏输入、不放入命令行参数）：
+<details>
+<summary><strong>初始化或导入已有供应商配置</strong></summary>
 
 ```bash
-claude-cn configure
-```
-
-切换其他兼容供应商：
-
-```bash
-claude-cn configure --base-url https://api.example.cn/anthropic --model your-model
-```
-
-也可直接编辑用户 `settings.json` 的 `env`，使用 Claude Code 支持的供应商配置。示例在 [config/zhipu.example.json](config/zhipu.example.json)。公网大陆 API 自动允许，境外 API 仍需要管理员显式加入网络域名白名单。本机/局域网 API 地址需命中允许的 CIDR。
-
-通用包初始化：
-
-```bash
-claude-cn init               # 不覆盖已有配置
-claude-cn configure
-# 或导入你自己的 Claude settings JSON：
+claude-cn init                         # 保留已有配置
 claude-cn init --from /path/to/settings.json
+claude-cn configure
 ```
 
-## 网络策略
+也可以编辑用户配置中的 `env`。字段示例见 [config/zhipu.example.json](config/zhipu.example.json)。
 
-| 目标 | 直接 TCP / UDP / ICMP | HTTP/CONNECT 代理 |
-|---|---|---|
-| 大陆 IPv4 / IPv6 | 允许，不限制端口 | 所有 TCP 端口 |
-| 明确放行局域网 | 允许，不限制端口 | 所有 TCP 端口 |
-| 境外域名白名单 | 境外 IP 直连拒绝 | 默认 TCP 80/443 |
-| 其他境外目标 | 拒绝 | 拒绝 |
-
-局域网默认包含 `10.0.0.0/8`、`192.168.8.0/24`、`192.168.10.0/24`。境内 SSH、UDP、DNS、ping 有直连通路，HTTP(S) 默认经项目代理；`curl --noproxy '*'` 可对允许目标直接联网。宿主机其他进程不进入此命名空间。
-
-```bash
-sudoedit /etc/claude-cn/policy.json
-sudo claude-cn-admin reload
-```
-
-`allow_domains` 配境外代理域名，`*.example.com` 不包含根域名；`allow_cidrs` 配额外直连 IP 网段。`ports` 只限制境外代理端口，默认 `[80,443]`。大陆按运营商/BGP/登记 IP 库判断，存在误差，不保证物理传输路径不经过境外。允许服务后续转发不在策略范围内。
-
-详细架构和宿主机参数影响见 [docs/NETWORK.md](docs/NETWORK.md)。网络采用 veth、双栈 NAT、两层 nftables；按需开启宿主机转发并保留 IPv6 RA 行为，停服务时尝试恢复原值。ping 权限仅在专用命名空间开启。规则仅匹配项目接口，不清空其他规则或改变默认防火墙策略。
+</details>
 
 ## 剪贴板粘贴
 
-沙箱内 seccomp 禁止本地 Unix socket，X11/Wayland 剪贴板因此不可达；`Ctrl+V` 粘贴图片与文本改由只读桥接完成：沙箱内的 `xclip`/`wl-paste` 垫片（`/usr/lib/claude-cn/sandbox-bin`，PATH 自动前置）经回环 `127.0.0.1:18081` 与命名空间内 relay 到达宿主守护 `claude-cn-clip.service`，后者以授权用户身份运行真实剪贴板工具并回传字节。升级后重启会话（含 `claude-cn --resume`）即可使用。
+支持通过只读桥接向 Claude Code 粘贴截图。**图片默认开放，桥接的文字读取默认关闭。** 在 `/etc/claude-cn/policy.json` 中将 `allow_clipboard_text` 改为 `true` 后，重启服务：
 
-- 范围：仅剪贴板（clipboard）选择区的**读取**；MIME 白名单为 `image/png|jpeg|jpg|gif|webp|bmp`，写入方向和 primary 选择区永不放行。**文本默认关闭**（文本剪贴板最易含密码）：需要时在 `/etc/claude-cn/policy.json` 加 `"allow_clipboard_text": true` 并 `sudo systemctl restart claude-cn-clip.service`，此后允许 `text/plain`（含 charset 变体与 UTF8_STRING 回退）。
-- 限额：单次 16 MiB、工具超时 5 秒（读取与回收共用截止时间，超时子进程被 SIGKILL）、每分钟最多 30 次请求；逐次审计日志见 `journalctl -u claude-cn-clip.service`。
-- 信任边界：沙箱内进程可在任意时刻（不限于按下 Ctrl+V 时）读取剪贴板内容，外泄仍受网络白名单约束；文本剪贴板可能含密码，请自行权衡，必要时 `sudo systemctl stop claude-cn-clip.service claude-cn-clip-relay.service` 关闭桥接。无图形会话（如 SSH 登录）时桥接自动不可用，不影响会话启动。
+```bash
+sudo systemctl restart claude-cn-clip.service
+```
+
+| 项目 | 范围 |
+| :--- | :--- |
+| 桌面后端 | X11 / Wayland，失败时按剩余预算尝试另一后端 |
+| 图片类型 | PNG、JPEG / JPG、GIF、WebP、BMP |
+| 文本类型 | 开启后允许纯文本、UTF-8 charset 变体及 `UTF8_STRING` |
+| 读取限制 | 单次 16 MiB、单工具调用最多 5 秒、每分钟 30 次请求 |
+| 操作方向 | 只读 clipboard，不提供写入或 primary 选择区 |
+
+宿主桥接服务只允许 Unix socket，拒绝远程 TCP DISPLAY；沙箱中的垫片通过专用命名空间回环 relay 读取结果。无图形会话或剪贴板服务失败不影响 Claude 会话启动。升级后重新启动 Claude 会话即可使用新垫片。
+
+桥接允许会话内程序随时读取已开放类型，无法区分用户按键与程序主动读取。可查看审计日志，或停止服务关闭功能：
+
+```bash
+journalctl -u claude-cn-clip.service -n 50 --no-pager
+sudo systemctl stop claude-cn-clip.service claude-cn-clip-relay.service
+```
 
 ## 验证与维护
 
 ```bash
 claude-cn doctor
 claude-cn self-test
-sudo python3 /usr/share/claude-cn/integration_network.py
 journalctl -u claude-cn-netns.service -u claude-cn-proxy.service -n 60 --no-pager
 ```
 
-`self-test` 不调用模型 API，检查直接 TCP/UDP/ping 和代理边界。独立 root 实验只在临时命名空间中验证，避免真实站点不回应造成歧义。内核转发部分需要管理员安装后测试；本地单元测试不等于已通过真实网络实验。
+管理员可运行隔离网络实验，使用临时命名空间验证路由与拒绝规则：
 
-IP 库从作者境内镜像更新，初始快照随包提供，安装不依赖即时下载。每天定时校验更新，失败保留旧库，成功后原子重载规则并重启代理。10808 仅用于本轮开发临时下载，未写入持久配置。
+```bash
+sudo python3 /usr/share/claude-cn/integration_network.py
+```
+
+### 更新与升级
+
+大陆 IP 库每天定时更新。新库经过格式、数量、覆盖量和地址集合变化检查；下载或检查失败保留旧库，成功后原子替换并重新加载网络规则。数据源见 [update.py](claude_cn/update.py)。
 
 ```bash
 sudo systemctl start claude-cn-update.service
 sudo apt install ./dist/claude-cn_NEW_VERSION_all.deb
 ```
 
-软件包升级前停止旧服务并恢复网络，升级后为已注册用户重新启用；用户供应商配置不覆盖，系统 JSON 由 dpkg conffiles 管理。首次安装不自动绑定某个用户名。
+升级前退出正在运行的 Claude 会话：升级会重启相关服务。用户供应商配置保留；系统 JSON 由 dpkg conffiles 管理，出现冲突提示时按需选择保留本地策略。已有注册用户通常无需重新 setup。
 
-## 构建
-
-```bash
-make test
-make deb                     # 通用包，不含 Key
-make deb-private             # 私有包，读取 gitignore 中的 config/zhipu.local.json
-```
-
-需要 Python 3.12、dpkg-deb，不需要 root、Docker、第三方 Python 模块。没有快照时先运行 `python3 -m claude_cn.update --output data/cn-networks.json`。构建采用文件白名单，不复制用户 HOME、Claude 私有二进制或临时构建文件。在 claude-cn 会话内运行 `make test` 会因 AF_UNIX socket 被隔离拒绝而失败，请在会话外的普通终端执行测试。
-
-`+local1` 包包含临时凭据，仅供本机使用；包和本地配置权限0600，通用包不包含这些凭据。密钥不会打印到构建或诊断输出中。
-
-## 停用与卸载
+### 停用与卸载
 
 ```bash
-sudo claude-cn-admin reset    # 停服务并撤销运行授权，保留配置
-sudo apt remove claude-cn     # 停服务并删除包，保留系统/用户配置
+sudo claude-cn-admin reset    # 停用服务、撤销授权，保留用户配置
+sudo apt remove claude-cn     # 卸载程序，保留配置
 sudo apt purge claude-cn      # 另清除系统配置和 IP 缓存，保留用户配置
 ```
 
-项目不修改原有 `claude-glm` 或 `claude`。这是网络出口工具，不是完整文件沙箱；宿主机 Unix socket、SSH agent、D-Bus 和 Docker socket 仍受限，SSH 可用密钥文件或密码连接。命名空间的 localhost 指自身；其他防火墙或实际路由仍可能影响连通性。
+## 工作原理与边界
+
+启动请求经本机 Unix socket 交给 root broker，由内核对端 UID 核验注册用户。启动子进程检查网络边界、进入命名空间并设置 DNS，随后降回用户身份、安装 seccomp，最后运行 Claude Code。服务或边界缺失时拒绝启动。
+
+网络通过专用 veth、双栈 NAT 和 nftables 工作；会按需启用宿主转发并保留 IPv6 RA 行为，停止时尝试恢复原值。规则匹配项目接口，不清空其他防火墙规则，也不修改宿主默认代理。更多细节见 [网络架构](docs/NETWORK.md)。
+
+**这是网络出口控制工具，不是完整文件沙箱。** Claude 仍拥有运行用户的文件权限。seccomp 限制部分宿主 IPC 与进程注入接口，但不能替代完整的文件、进程和内容隔离。宿主的其他进程不会自动受到这套出口策略约束。
+
+## 开发与构建
+
+```bash
+python3 -m claude_cn.update --output data/cn-networks.json
+make test
+make deb
+```
+
+请在 claude-cn 会话外的普通终端执行 `make test`；会话内的 AF_UNIX 创建限制会使部分测试失败。单元测试不替代真实系统上的网络与桌面验收。
+
+构建采用文件白名单，不包含用户 HOME 或 Claude 私有二进制。公共包使用空 Key 模板。
+
+<details>
+<summary><strong>仅供本机的私有配置包</strong></summary>
+
+`make deb-private` 从被 Git 忽略的 `config/zhipu.local.json` 构建 `+local1` 包。它可能包含供应商凭据，包和本地配置应保持 `0600`，仅供本机使用，不应上传到仓库或公共发行附件。通用包和私有包使用相同的软件包名，安装时选择其中一种。
+
+</details>
+
+## 文档与反馈
+
+| 资源 | 内容 |
+| :--- | :--- |
+| [网络架构](docs/NETWORK.md) | 命名空间、代理、宿主改动与剪贴板桥接 |
+| [更新日志](CHANGELOG.md) | 各版本变更 |
+| [验证记录](VALIDATION.md) | 测试结果和验收范围 |
+| [默认网络策略](config/policy.json) | 域名、网段和端口配置 |
+| [第三方说明](THIRD_PARTY.md) | IP 数据来源与许可 |
+
+欢迎通过 [Issues](https://github.com/robin-ming/claude_cn/issues) 反馈问题，或提交 [Pull Request](https://github.com/robin-ming/claude_cn/pulls)。报告问题时请附上版本、系统环境和脱敏后的诊断信息。
+
+## 许可证
+
+[MIT](LICENSE) · IP 数据的许可与归属见 [THIRD_PARTY.md](THIRD_PARTY.md)。
