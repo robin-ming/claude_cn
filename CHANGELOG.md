@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- 沙箱内可直接向 Claude Code 粘贴截图与文本：只读剪贴板桥接，垫片经回环 relay 到达宿主守护，Claude Code 无需改动。
+- 守护以授权用户身份运行真实 xclip / wl-paste；MIME 白名单（六种图片与 text/plain）、16 MiB 上限、5 秒超时与每分钟 30 次限速，逐次审计日志。
+- 新增 `claude-cn-clip.service` 与 `claude-cn-clip-relay.service`，接入 doctor、admin 与卸载列表；deb 依赖加入 xclip 与 wl-clipboard。
+- 沙箱 PATH 前置 `/usr/lib/claude-cn/sandbox-bin` 提供垫片，不影响 Claude 本体查找；写入方向与 primary 选择区永不放行。
+
 ## 0.3.1
 
 - 移除 deb 中遗留的 sudo 依赖；日常启动与清理均不再需要 sudo 包。
