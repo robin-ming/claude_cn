@@ -1,3 +1,22 @@
+# 验证记录：0.4.2
+
+## 本次变更（外部评审意见修复）
+
+采纳 Codex 评审四条意见中的第 2–4 条（第 1 条能力集缺失已在 0.4.1 修复）：
+
+- 读取与回收共用截止时间：子进程 stdout 提前关闭仍滞留时按超时失败并 SIGKILL（评审复现：0.1 秒超时实际等待 1 秒且返回成功；现以 `test_eof_then_stuck_child_is_bounded` 锁定），单元补 `CAP_KILL` 保证可终止降权子进程，`_terminate` 有界回收、极端情况弃养并记日志，不再可能耗尽 8 个处理槽位。
+- Wayland 文本显式 `--type` 请求并附 `--no-newline`，堵住自动选型返回白名单外 MIME 的通路与多余换行；X11 文本回退 `UTF8_STRING`、Wayland 回退 `text/plain;charset=utf-8`。
+- 文本剪贴板默认关闭（`policy.json` 的 `allow_clipboard_text`，默认 false），采纳"默认只开放图片、文本单独启用"建议。
+- 剪贴板单元改为可选组件：`admin.setup()` 容忍其启动失败（提示不中断），doctor 对其只提示不判失败。
+
+## 安装前验证
+
+- 单元测试 69 项（新增 4 项：有界超时复现锁定、文本开关、X11/Wayland 文本回退）：会话内 58 项通过，11 项 AF_UNIX 限制类错误集合不变；评审者已在会话外对 0.4.1 代码跑通全量 65 项，新增 4 项需会话外复核。
+- `systemd-analyze verify` 通过；`verify_deb.py` 双包全过，校验和更新于 `dist/SHA256SUMS`。
+- 已知未覆盖：真实 systemd 权限裁剪、真实 X11/Wayland 剪贴板与 Claude Code 实贴流程——依赖安装后桌面端到端验收。
+
+以下为 0.4.1 验证记录。
+
 # 验证记录：0.4.1
 
 ## 本次变更（0.4.0 安装实测回归修复）

@@ -43,6 +43,6 @@ HTTP(S) 代理变量仅注入 Claude 进程树。HTTP(S) 默认经代理，直�
 
 ## 剪贴板桥接
 
-`claude-cn-clip.service`（root）在 `/run/claude-cn-clip/clip.sock` 监听；命名空间内 `claude-cn-clip-relay.service` 用 socat 把 `127.0.0.1:18081` 接到该 socket。沙箱内垫片只使用这条回环 TCP 通道，seccomp 与出站规则不变。守护从 `/proc` 发现授权用户的图形会话环境，降权后运行真实 `xclip`（X11）或 `wl-paste`（Wayland）读取剪贴板，仅回传白名单 MIME（六种图片格式与 `text/plain`），单次 16 MiB、超时 5 秒、每分钟 30 次限速，每次读取记录审计日志。
+`claude-cn-clip.service`（root）在 `/run/claude-cn-clip/clip.sock` 监听；命名空间内 `claude-cn-clip-relay.service` 用 socat 把 `127.0.0.1:18081` 接到该 socket。沙箱内垫片只使用这条回环 TCP 通道，seccomp 与出站规则不变。守护从 `/proc` 发现授权用户的图形会话环境，降权后运行真实 `xclip`（X11）或 `wl-paste`（Wayland）读取剪贴板，仅回传白名单 MIME（六种图片格式；文本需在 policy.json 开启 `allow_clipboard_text`，X11 回退 `UTF8_STRING`、Wayland 显式 `--type` 请求 `text/plain` 及其 charset 变体，均附 `--no-newline`）。单次 16 MiB；读取与回收共用 5 秒截止时间，超时以 SIGKILL 终止降权子进程（单元保留 CAP_KILL），绝不无期限阻塞处理线程；每分钟 30 次限速，每次读取记录审计日志。剪贴板单元为可选组件：启动失败只影响粘贴，不会阻断安装、升级与会话。
 
-信任模型：这是唯一一条沙箱主动读取宿主桌面数据的通道。任意沙箱内进程都可在任意时刻发起读取，守护无法区分用户按键与程序行为；缓解依赖只读范围、MIME 白名单、审计日志与既有出站白名单。写入方向与 primary 选择区不提供。剪贴板含敏感文本时可停止上述两个服务关闭桥接，会话启动不受影响。
+信任模型：这是唯一一条沙箱主动读取宿主桌面数据的通道。任意沙箱内进程都可在任意时刻发起读取，守护无法区分用户按键与程序行为；缓解依赖只读范围、MIME 白名单、审计日志与既有出站白名单——但网络白名单不能阻止内容进入已允许的模型 API。写入方向与 primary 选择区不提供。剪贴板含敏感内容时可停止上述两个服务关闭桥接，会话启动不受影响。

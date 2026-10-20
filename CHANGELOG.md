@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- 剪贴板工具的读取与退出回收共用同一截止时间：stdout 提前关闭、子进程滞留时按超时失败并 SIGKILL（单元补 `CAP_KILL`），不再无期限阻塞处理线程。
+- Wayland 文本改为显式 `--type` 请求并附加 `--no-newline`，消除自动选型绕过 MIME 白名单与多余换行；X11 文本失败回退 `UTF8_STRING`，Wayland 回退 `text/plain;charset=utf-8`。
+- 文本剪贴板默认关闭：policy.json 新增 `allow_clipboard_text`（默认 false），按需开启后重启 clip 服务生效。
+- 剪贴板单元接入可选组件处理：setup/升级容忍其启动失败，doctor 改为提示不判失败。
+
 ## 0.4.1
 
 - 修复剪贴板守护启动即崩溃：能力集补上 `CAP_CHOWN`（socket 移交 relay 用户）与 `CAP_DAC_READ_SEARCH`（读取授权用户的 `/proc` 会话环境）。

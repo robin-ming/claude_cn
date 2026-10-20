@@ -6,11 +6,11 @@
 
 ## 安装
 
-本机包 `claude-cn_0.4.1+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.4.1_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
+本机包 `claude-cn_0.4.2+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.4.2_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
 
 ```bash
 cd ~/Storage/Project/claude_cn
-sudo apt install ./dist/claude-cn_0.4.1+local1_all.deb
+sudo apt install ./dist/claude-cn_0.4.2+local1_all.deb
 sudo claude-cn-admin setup --user robin
 claude-cn doctor
 claude-cn --version
@@ -112,8 +112,8 @@ sudo claude-cn-admin reload
 
 沙箱内 seccomp 禁止本地 Unix socket，X11/Wayland 剪贴板因此不可达；`Ctrl+V` 粘贴图片与文本改由只读桥接完成：沙箱内的 `xclip`/`wl-paste` 垫片（`/usr/lib/claude-cn/sandbox-bin`，PATH 自动前置）经回环 `127.0.0.1:18081` 与命名空间内 relay 到达宿主守护 `claude-cn-clip.service`，后者以授权用户身份运行真实剪贴板工具并回传字节。升级后重启会话（含 `claude-cn --resume`）即可使用。
 
-- 范围：仅剪贴板（clipboard）选择区的**读取**；MIME 白名单为 `image/png|jpeg|jpg|gif|webp|bmp` 与 `text/plain`，写入方向和 primary 选择区永不放行。
-- 限额：单次 16 MiB、工具超时 5 秒、每分钟最多 30 次请求；逐次审计日志见 `journalctl -u claude-cn-clip.service`。
+- 范围：仅剪贴板（clipboard）选择区的**读取**；MIME 白名单为 `image/png|jpeg|jpg|gif|webp|bmp`，写入方向和 primary 选择区永不放行。**文本默认关闭**（文本剪贴板最易含密码）：需要时在 `/etc/claude-cn/policy.json` 加 `"allow_clipboard_text": true` 并 `sudo systemctl restart claude-cn-clip.service`，此后允许 `text/plain`（含 charset 变体与 UTF8_STRING 回退）。
+- 限额：单次 16 MiB、工具超时 5 秒（读取与回收共用截止时间，超时子进程被 SIGKILL）、每分钟最多 30 次请求；逐次审计日志见 `journalctl -u claude-cn-clip.service`。
 - 信任边界：沙箱内进程可在任意时刻（不限于按下 Ctrl+V 时）读取剪贴板内容，外泄仍受网络白名单约束；文本剪贴板可能含密码，请自行权衡，必要时 `sudo systemctl stop claude-cn-clip.service claude-cn-clip-relay.service` 关闭桥接。无图形会话（如 SSH 登录）时桥接自动不可用，不影响会话启动。
 
 ## 验证与维护
