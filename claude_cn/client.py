@@ -96,7 +96,12 @@ def launch(args, address=SOCKET):
                     msg = conn.recv(MAX_PACKET)
                     if not msg:
                         raise SystemExit('claude-cn: 启动服务连接断开')
-                    response = json.loads(msg)
+                    try:
+                        response = json.loads(msg)
+                    except ValueError:
+                        raise SystemExit('claude-cn: 启动服务响应无法解析') from None
+                    if not isinstance(response, dict):
+                        raise SystemExit('claude-cn: 启动服务响应异常')
                     if 'error' in response:
                         raise SystemExit('claude-cn: 启动服务拒绝请求或启动失败')
                     if master is not None:
@@ -118,7 +123,9 @@ def launch(args, address=SOCKET):
                             tty.setraw(0)
                         forward(signal.SIGCONT, None)
                         continue
-                    code = response['exit']
+                    code = response.get('exit')
+                    if type(code) is not int:
+                        raise SystemExit('claude-cn: 启动服务响应异常')
                     if code == 125:
                         print('claude-cn: 隔离启动失败，请检查网络服务、配置及 Claude 路径。', file=sys.stderr)
                     raise SystemExit(code)
