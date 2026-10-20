@@ -143,7 +143,7 @@ class ContextTests(unittest.TestCase):
 
     def test_text_disabled_by_default(self):
         context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'text',
-                               discover=lambda uid: {'DISPLAY': ':0'})
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
         self.assertEqual(context.handle('GET text/plain'), b'ERR text disabled\n')
         context.allow_text = True
         self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
@@ -156,7 +156,8 @@ class ContextTests(unittest.TestCase):
             return b'hello'
 
         context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
-                               discover=lambda uid: {'DISPLAY': ':0', 'XAUTHORITY': '/home/u/.Xauthority'})
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0', 'XAUTHORITY': '/home/u/.Xauthority'},
+                                                   'wayland': None})
         with mock.patch.object(clip, 'XCLIP', '/bin/true'):
             self.assertEqual(context.handle('TARGETS'), b'OK 5\nhello')
             self.assertEqual(context.handle('GET text/plain'), b'OK 5\nhello')
@@ -176,10 +177,37 @@ class ContextTests(unittest.TestCase):
             return b'text'
 
         context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
-                               discover=lambda uid: {'DISPLAY': ':0'})
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
         with mock.patch.object(clip, 'XCLIP', '/bin/true'):
             self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
         self.assertEqual(calls[1], ['/bin/true', '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o'])
+
+    def test_wayland_used_when_x11_backend_fails(self):
+        calls = []
+
+        def runner(argv, env, uid, gid):
+            calls.append(argv)
+            if '-selection' in argv:
+                raise clip.BridgeError('clipboard tool failed')
+            return b'image'
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner,
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'},
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
+            self.assertEqual(context.handle('GET image/png'), b'OK 5\nimage')
+        self.assertTrue(any('-selection' in argv for argv in calls))
+        self.assertEqual(calls[-1], ['/bin/true', '--type', 'image/png'])
+
+    def test_x11_failure_without_wayland_reports_error(self):
+        def runner(argv, env, uid, gid):
+            raise clip.BridgeError('clipboard tool failed')
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner,
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'):
+            self.assertEqual(context.handle('GET image/png'), b'ERR clipboard tool failed\n')
 
     def test_charset_and_utf8_string_requests_pass_protocol(self):
         calls = []
@@ -189,7 +217,7 @@ class ContextTests(unittest.TestCase):
             return b'x'
 
         context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
-                               discover=lambda uid: {'DISPLAY': ':0'})
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
         with mock.patch.object(clip, 'XCLIP', '/bin/true'):
             for line in ('GET text/plain;charset=utf-8', 'GET UTF8_STRING'):
                 self.assertTrue(context.handle(line).startswith(b'OK 1\n'), line)
@@ -204,8 +232,9 @@ class ContextTests(unittest.TestCase):
             return b'x'
 
         context = clip.Context(1000, 1000, '/home/w', runner=runner, allow_text=True,
-                               discover=lambda uid: {'WAYLAND_DISPLAY': 'wayland-0',
-                                                     'XDG_RUNTIME_DIR': '/run/user/1000'})
+                               discover=lambda uid: {'x11': None,
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
         with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
             for line in ('TARGETS', 'GET text/plain', 'GET image/png'):
                 self.assertTrue(context.handle(line).startswith(b'OK 1\n'), line)
@@ -223,50 +252,61 @@ class ContextTests(unittest.TestCase):
             return b'text'
 
         context = clip.Context(1000, 1000, '/home/w', runner=runner, allow_text=True,
-                               discover=lambda uid: {'WAYLAND_DISPLAY': 'wayland-0',
-                                                     'XDG_RUNTIME_DIR': '/run/user/1000'})
+                               discover=lambda uid: {'x11': None,
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
         with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
             self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
         self.assertEqual(calls[1], ['/bin/true', '--no-newline', '--type', 'text/plain;charset=utf-8'])
 
     def test_no_tool_available(self):
         context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x', allow_text=True,
-                               discover=lambda uid: {'DISPLAY': ':0'})
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
         with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/nonexistent/wl-paste'):
             self.assertEqual(context.handle('GET text/plain'), b'ERR no clipboard tool for this session\n')
 
     def test_no_graphical_session(self):
-        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x', discover=lambda uid: None)
+        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x',
+                               discover=lambda uid: {'x11': None, 'wayland': None})
         self.assertEqual(context.handle('GET image/png'), b'ERR no graphical session\n')
 
     def test_rate_limit(self):
-        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'', discover=lambda uid: {'DISPLAY': ':0'})
+        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'',
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None})
         for _ in range(clip.RATE_LIMIT):
             self.assertEqual(context.handle('GET image/png'), b'OK 0\n')
         self.assertEqual(context.handle('GET image/png'), b'ERR rate limited\n')
 
 
 class DiscoverEnvTests(unittest.TestCase):
-    def test_scans_fake_proc(self):
+    def test_scans_fake_proc_and_collects_both_backends(self):
         with tempfile.TemporaryDirectory() as tmp:
             x11 = Path(tmp)/'42'
             x11.mkdir()
             (x11/'environ').write_bytes(b'PATH=/bin\0DISPLAY=:0\0XAUTHORITY=/home/u/.Xauthority\0')
+            wayland = Path(tmp)/'7'
+            wayland.mkdir()
+            (wayland/'environ').write_bytes(b'WAYLAND_DISPLAY=wayland-0\0XDG_RUNTIME_DIR=/run/user/1000\0')
             found = clip.discover_env(tmp, uid=os.getuid())
-            self.assertEqual((found.get('DISPLAY'), found.get('XAUTHORITY')), (':0', '/home/u/.Xauthority'))
-            self.assertIsNone(clip.discover_env(tmp, uid=65534))
+            self.assertEqual((found['x11']['DISPLAY'], found['x11']['XAUTHORITY']),
+                             (':0', '/home/u/.Xauthority'))
+            self.assertEqual(found['wayland']['WAYLAND_DISPLAY'], 'wayland-0')
+            empty = clip.discover_env(tmp, uid=65534)
+            self.assertEqual(empty, {'x11': None, 'wayland': None})
 
-    def test_wayland_fallback(self):
+    def test_wayland_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             wayland = Path(tmp)/'7'
             wayland.mkdir()
             (wayland/'environ').write_bytes(b'WAYLAND_DISPLAY=wayland-0\0XDG_RUNTIME_DIR=/run/user/1000\0')
             found = clip.discover_env(tmp, uid=os.getuid())
-            self.assertEqual(found.get('WAYLAND_DISPLAY'), 'wayland-0')
+            self.assertIsNone(found['x11'])
+            self.assertEqual(found['wayland']['WAYLAND_DISPLAY'], 'wayland-0')
 
     def test_empty_proc(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(clip.discover_env(tmp, uid=os.getuid()))
+            self.assertEqual(clip.discover_env(tmp, uid=os.getuid()),
+                             {'x11': None, 'wayland': None})
 
 
 class RunToolTests(unittest.TestCase):
@@ -283,6 +323,23 @@ class RunToolTests(unittest.TestCase):
         with self.assertRaises(clip.BridgeError):
             clip.run_tool(['/bin/sleep', '30'], {'PATH': '/usr/bin:/bin'},
                           os.getuid(), os.getgid(), timeout=0.5)
+
+    def test_timeout_kills_the_whole_tool_process_group(self):
+        # Reviewer reproduction: the tool spawns its own child and hangs; the
+        # timeout must clear the entire group, not only the direct child.
+        script = ('import os,subprocess,sys,time;os.close(1);'
+                  'c=subprocess.Popen([sys.executable,"-I","-c","import time;time.sleep(30)"]);'
+                  'open(sys.argv[1],"w").write(str(c.pid));time.sleep(30)')
+        with tempfile.NamedTemporaryFile('r', suffix='.pid') as handle:
+            with self.assertRaises(clip.BridgeError):
+                clip.run_tool([sys.executable, '-I', '-c', script, handle.name],
+                              {'PATH': '/usr/bin:/bin'}, os.getuid(), os.getgid(), timeout=0.5)
+            grandchild = int(handle.read())
+            for _ in range(80):
+                if not Path(f'/proc/{grandchild}').exists():
+                    break
+                time.sleep(0.05)
+            self.assertFalse(Path(f'/proc/{grandchild}').exists(), 'grandchild survived the timeout')
 
     def test_eof_then_stuck_child_is_bounded_and_killed(self):
         # Reviewer reproduction: the child closes stdout and keeps running. The
@@ -324,7 +381,8 @@ class DaemonEndToEnd(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp)/'clip.sock')
             context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'data',
-                                   discover=lambda uid: {'DISPLAY': ':0'}, allow_text=True)
+                                   discover=lambda uid: {'x11': {'DISPLAY': ':0'}, 'wayland': None},
+                                   allow_text=True)
             with running(clip.Server(path, context)):
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(3)

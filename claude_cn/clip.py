@@ -133,12 +133,16 @@ def wl_paste_main(argv, connect=None, out=None):
 
 
 def discover_env(proc='/proc', uid=None):
-    """Find the graphical session environment of the authorized user."""
-    fallback = None
+    """Collect X11 and Wayland session environments of the authorized user.
+
+    Both backends are kept: a stale DISPLAY (SSH forwarding, dead server) must
+    not hide a working Wayland clipboard, and vice versa.
+    """
+    found = {'x11': None, 'wayland': None}
     try:
         names = os.listdir(proc)
     except OSError:
-        return None
+        return found
     for name in names:
         if not name.isdigit():
             continue
@@ -154,34 +158,32 @@ def discover_env(proc='/proc', uid=None):
             key, sep, value = item.partition(b'=')
             if sep:
                 session[key.decode('ascii', 'replace')] = value.decode('utf-8', 'replace')
-        if session.get('DISPLAY'):
-            return session
-        if fallback is None and session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR'):
-            fallback = session
-    return fallback
+        if not found['x11'] and session.get('DISPLAY'):
+            found['x11'] = session
+        elif not found['wayland'] and session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR'):
+            found['wayland'] = session
+    return found
 
 
-def tool_plan(mime, session, home):
-    """Build (argv, env) for the real clipboard tool; mime None means TARGETS."""
+def tool_plan(mime, session, home, backend):
+    """Build (argv, env) for the chosen backend; mime None means TARGETS."""
     common = {'PATH': '/usr/bin:/bin', 'HOME': home}
-    if session.get('DISPLAY') and os.access(XCLIP, os.X_OK):
+    if backend == 'x11':
         argv = [XCLIP, '-selection', 'clipboard', '-t', mime or 'TARGETS', '-o']
         env = {**common, 'DISPLAY': session['DISPLAY']}
         if session.get('XAUTHORITY'):
             env['XAUTHORITY'] = session['XAUTHORITY']
         return argv, env
-    if session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR') and os.access(WLPASTE, os.X_OK):
-        if mime is None:
-            argv = [WLPASTE, '-l']
-        elif is_text(mime):
-            # Explicit type only: a bare wl-paste auto-selects whatever the
-            # offer lists and could return content outside the whitelist.
-            argv = [WLPASTE, '--no-newline', '--type', mime]
-        else:
-            argv = [WLPASTE, '--type', mime]
-        return argv, {**common, 'WAYLAND_DISPLAY': session['WAYLAND_DISPLAY'],
-                      'XDG_RUNTIME_DIR': session['XDG_RUNTIME_DIR']}
-    raise BridgeError('no clipboard tool for this session')
+    if mime is None:
+        argv = [WLPASTE, '-l']
+    elif is_text(mime):
+        # Explicit type only: a bare wl-paste auto-selects whatever the
+        # offer lists and could return content outside the whitelist.
+        argv = [WLPASTE, '--no-newline', '--type', mime]
+    else:
+        argv = [WLPASTE, '--type', mime]
+    return argv, {**common, 'WAYLAND_DISPLAY': session['WAYLAND_DISPLAY'],
+                  'XDG_RUNTIME_DIR': session['XDG_RUNTIME_DIR']}
 
 
 def _wait_bounded(pid, deadline):
@@ -200,11 +202,14 @@ def _wait_bounded(pid, deadline):
 
 
 def _terminate(pid):
-    """Best-effort SIGKILL then a bounded reap; a stuck child is abandoned."""
+    """SIGKILL the tool's whole process group, then reap within bounds."""
     try:
-        os.kill(pid, signal.SIGKILL)
+        os.killpg(pid, signal.SIGKILL)
     except OSError:
-        pass
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
     if _wait_bounded(pid, time.monotonic() + 2) is None:
         LOG.error('clipboard tool pid %d survived SIGKILL; abandoning it', pid)
 
@@ -219,6 +224,9 @@ def run_tool(argv, env, uid, gid, timeout=TOOL_TIMEOUT):
         os.dup2(write_fd, 1)
         os.dup2(os.open(os.devnull, os.O_WRONLY), 2)
         try:
+            # Own process group: a timeout must kill whatever the tool spawned,
+            # never the daemon sharing the old group.
+            os.setsid()
             if os.geteuid() == 0:
                 os.setgroups([])
                 os.setgid(gid)
@@ -284,18 +292,43 @@ class Context:
         self.history.append(now)
         return True
 
-    def retry_text(self, mime, argv, env, exc):
-        """Fall back to the alternate plain-text target when the first is absent."""
-        if str(exc) != 'clipboard tool failed':
-            raise exc
-        if mime == 'text/plain' and argv[0] == XCLIP:
-            retry = [XCLIP, '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o']
-        elif mime == 'text/plain' and argv[0] == WLPASTE:
-            retry = [WLPASTE, '--no-newline', '--type', 'text/plain;charset=utf-8']
-        else:
-            raise exc
-        LOG.info('retrying clipboard text: %s', ' '.join(retry))
-        return self.runner(retry, env, self.uid, self.gid)
+    def backends(self, sessions):
+        """Usable backends in preference order, based on session and tools."""
+        order = []
+        if sessions.get('x11') and os.access(XCLIP, os.X_OK):
+            order.append('x11')
+        if sessions.get('wayland') and os.access(WLPASTE, os.X_OK):
+            order.append('wayland')
+        return order
+
+    def text_alternative(self, mime, backend):
+        """Alternate plain-text target used when the primary one is absent."""
+        if mime != 'text/plain':
+            return None
+        if backend == 'x11':
+            return [XCLIP, '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o']
+        return [WLPASTE, '--no-newline', '--type', 'text/plain;charset=utf-8']
+
+    def fetch(self, mime, sessions):
+        """Try each backend and text target until one yields data."""
+        attempts = []
+        for backend in self.backends(sessions):
+            argv, env = tool_plan(mime, sessions[backend], self.home, backend)
+            attempts.append((argv, env))
+            alternative = self.text_alternative(mime, backend)
+            if alternative:
+                attempts.append((alternative, env))
+        if not attempts:
+            raise BridgeError('no clipboard tool for this session')
+        for index, (argv, env) in enumerate(attempts):
+            try:
+                return self.runner(argv, env, self.uid, self.gid)
+            except BridgeError as exc:
+                # Only an absent target justifies the next attempt; timeouts
+                # and size violations must not trigger further tool runs.
+                if str(exc) != 'clipboard tool failed' or index == len(attempts) - 1:
+                    raise
+        raise BridgeError('clipboard tool failed')
 
     def handle(self, line):
         """Return the raw response bytes for one request line."""
@@ -317,15 +350,11 @@ class Context:
         if not self.allow():
             LOG.warning('rate limited')
             return b'ERR rate limited\n'
-        session = self.session_env()
-        if not session:
+        sessions = self.session_env()
+        if not any(sessions.values()):
             return b'ERR no graphical session\n'
         try:
-            argv, env = tool_plan(mime, session, self.home)
-            try:
-                data = self.runner(argv, env, self.uid, self.gid)
-            except BridgeError as exc:
-                data = self.retry_text(mime, argv, env, exc)
+            data = self.fetch(mime, sessions)
         except BridgeError as exc:
             LOG.warning('clip %s: %s', line, exc)
             return f'ERR {exc}\n'.encode('ascii', 'replace')
