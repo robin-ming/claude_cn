@@ -141,7 +141,7 @@ class PolicyTests(unittest.TestCase):
         old = {'networks': ['1.0.0.0/8', '240e::/32']}
         tiny = {'networks': ['1.0.1.0/24', '240e::/32']}
         huge = {'networks': ['1.0.0.0/6', '240e::/32']}
-        sane = {'networks': ['1.0.0.0/8', '240e::/31']}
+        sane = {'networks': ['1.0.0.0/8', '240e::/32', '240f::/48']}
         for bad in (tiny, huge):
             with self.assertRaises(ValueError):
                 check_plausible(old, bad)
@@ -149,6 +149,17 @@ class PolicyTests(unittest.TestCase):
         check_plausible(None, sane)
         with self.assertRaises(ValueError):
             check_plausible(old, {'networks': ['1.0.0.0/8']})
+
+    def test_updater_rejects_equal_size_replacement(self):
+        # Reviewer reproduction: a swapped library of identical total size
+        # passes the total-coverage check; the churn itself must be bounded.
+        from claude_cn.update import check_plausible
+        old = {'networks': ['1.0.0.0/8', '2.0.0.0/8', '240e::/32']}
+        swapped = {'networks': ['3.0.0.0/8', '4.0.0.0/8', '240e::/32']}
+        with self.assertRaises(ValueError):
+            check_plausible(old, swapped)
+        churned = {'networks': ['1.0.0.0/8', '2.128.0.0/9', '240e::/32']}
+        check_plausible(old, churned)
 
 
 if __name__ == '__main__':

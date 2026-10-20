@@ -39,25 +39,56 @@ def covered_space(rows):
     return sum(int(ipaddress.ip_network(row).num_addresses) for row in rows)
 
 
+def exclude_space(networks, remove):
+    """Address space of networks not covered by remove.
+
+    CIDR networks are either disjoint or nested, so exclusion reduces to
+    address_exclude on contained pieces.
+    """
+    pieces = []
+    for net in networks:
+        remaining = [net]
+        for other in remove:
+            if other.version != net.version or not other.overlaps(net):
+                continue
+            if net.subnet_of(other):
+                remaining = []
+                break
+            remaining = [piece for sub in remaining for piece in sub.address_exclude(other)]
+        pieces.extend(remaining)
+    return pieces
+
+
 def check_plausible(old_data, new_data):
-    """Reject snapshots whose per-family coverage collapses or explodes.
+    """Reject snapshots whose per-family coverage collapses, explodes or is swapped.
 
     A wrong library could mark foreign addresses as mainland; unusual swings
-    against the current snapshot keep the old library in place instead.
+    or large-scale replacement against the current snapshot keep the old
+    library in place instead. This detects anomalies only; it cannot prove
+    the geographic origin of any address.
     """
     for version in ('4', '6'):
-        family = [row for row in new_data['networks']
-                  if ipaddress.ip_network(row).version == int(version)]
-        if old_data:
-            old = covered_space([row for row in old_data.get('networks', [])
-                                 if ipaddress.ip_network(row).version == int(version)])
-        else:
-            old = 0
-        new = covered_space(family)
+        new_rows = [row for row in new_data['networks']
+                    if ipaddress.ip_network(row).version == int(version)]
+        new_nets = [ipaddress.ip_network(row) for row in new_rows]
+        new = sum(net.num_addresses for net in new_nets)
         if not new:
             raise ValueError(f'new snapshot covers no IPv{version} space')
-        if old and not 0.5 <= new / old <= 2.0:
+        if not old_data:
+            continue
+        old_nets = [ipaddress.ip_network(row) for row in old_data.get('networks', [])
+                    if ipaddress.ip_network(row).version == int(version)]
+        old = sum(net.num_addresses for net in old_nets)
+        if not old:
+            continue
+        if not 0.5 <= new / old <= 2.0:
             raise ValueError(f'IPv{version} coverage changed {new / old:.2f}x; keeping the old library')
+        # Equal-size replacement evades the total check; bound the churn itself.
+        added = sum(net.num_addresses for net in exclude_space(new_nets, old_nets))
+        removed = sum(net.num_addresses for net in exclude_space(old_nets, new_nets))
+        if added > 0.5 * old or removed > 0.5 * old:
+            raise ValueError(f'IPv{version} space replaced (added {added / old:.0%}, '
+                             f'removed {removed / old:.0%}); keeping the old library')
 
 
 def download_snapshot(proxy=None):
