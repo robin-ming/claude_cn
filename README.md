@@ -9,7 +9,7 @@
 本机包 `claude-cn_0.3.0+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.3.0_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
 
 ```bash
-cd /home/robin/claude_whitelist
+cd ~/Storage/Project/claude_cn
 sudo apt install ./dist/claude-cn_0.3.0+local1_all.deb
 sudo claude-cn-admin setup --user robin
 claude-cn doctor
@@ -136,7 +136,7 @@ make deb                     # 通用包，不含 Key
 make deb-private             # 私有包，读取 gitignore 中的 config/zhipu.local.json
 ```
 
-需要 Python 3.12、dpkg-deb，不需要 root、Docker、第三方 Python 模块。没有快照时先运行 `python3 -m claude_cn.update --output data/cn-networks.json`。构建采用文件白名单，不复制用户 HOME、Claude 私有二进制或临时构建文件。
+需要 Python 3.12、dpkg-deb，不需要 root、Docker、第三方 Python 模块。没有快照时先运行 `python3 -m claude_cn.update --output data/cn-networks.json`。构建采用文件白名单，不复制用户 HOME、Claude 私有二进制或临时构建文件。在 claude-cn 会话内运行 `make test` 会因 AF_UNIX socket 被隔离拒绝而失败，请在会话外的普通终端执行测试。
 
 `+local1` 包包含临时凭据，仅供本机使用；包和本地配置权限0600，通用包不包含这些凭据。密钥不会打印到构建或诊断输出中。
 
