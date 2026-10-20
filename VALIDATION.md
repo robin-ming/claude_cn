@@ -1,3 +1,18 @@
+# 验证记录：0.4.1
+
+## 本次变更（0.4.0 安装实测回归修复）
+
+- 0.4.0 安装后剪贴板不可用：会话内实测 `127.0.0.1:18081` 可连但立即关闭，`/run/claude-cn-clip/clip.sock` 保持 root:root 0600，守护进程反复消失。根因：单元能力集缺 `CAP_CHOWN`，`os.chown` 抛 EPERM 且仅捕获 KeyError，未处理异常导致退出并触发 systemd 启动限制。
+- 修复：能力集补 `CAP_CHOWN CAP_DAC_READ_SEARCH`；socket 移交失败降级为告警（新增测试锁定该行为，防止回归为崩溃）。
+- 教训记录：此类缺能力缺陷无法被会话内单元测试覆盖（无 root、无 systemd 执行环境），依赖安装后实测发现；`verify_deb` 与 `systemd-analyze verify` 均不校验能力充分性。
+
+## 安装前验证
+
+- 单元测试 65 项（新增 socket 移交韧性 2 项）：会话内 54 项通过，11 项 AF_UNIX 限制类错误集合不变，需会话外 `make test` 复核。
+- `systemd-analyze verify` 通过修改后的 claude-cn-clip.service；`verify_deb.py` 双包全过，校验和更新于 `dist/SHA256SUMS`。
+
+以下为 0.4.0 验证记录。
+
 # 验证记录：0.4.0
 
 ## 本次变更（剪贴板粘贴支持）

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- 修复剪贴板守护启动即崩溃：能力集补上 `CAP_CHOWN`（socket 移交 relay 用户）与 `CAP_DAC_READ_SEARCH`（读取授权用户的 `/proc` 会话环境）。
+- socket 移交失败改为告警降级，不再以未处理异常退出触发重启循环。
+
 ## 0.4.0
 
 - 沙箱内可直接向 Claude Code 粘贴截图与文本：只读剪贴板桥接，垫片经回环 relay 到达宿主守护，Claude Code 无需改动。
