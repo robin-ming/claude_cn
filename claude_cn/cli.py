@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from .runtime import expand_path, find_claude, read_runtime, write_settings
 
-VERSION = '0.4.1'
+VERSION = '0.4.2'
 BROKER_SOCKET = Path('/run/claude-cn-launch/control.sock')
 SHARE = Path('/usr/share/claude-cn')
 
@@ -85,9 +85,14 @@ def doctor():
         check('当前用户已授权', json.loads(install_path.read_text())['uid'] == os.getuid())
     check('后台启动服务接口', BROKER_SOCKET.is_socket())
     if Path('/run/systemd/system').exists():
-        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-clip', 'claude-cn-clip-relay', 'claude-cn-relay', 'claude-cn-launch', 'claude-cn-update.timer'):
+        optional = ('claude-cn-clip', 'claude-cn-clip-relay')
+        for name in ('claude-cn-netns', 'claude-cn-proxy', 'claude-cn-relay', 'claude-cn-launch', 'claude-cn-update.timer'):
             result = subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', name], check=False)
             check(name, result.returncode == 0)
+        for name in optional:
+            result = subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', name], check=False)
+            state = '正常' if result.returncode == 0 else '未运行（剪贴板粘贴不可用，不影响会话）'
+            print(f'INFO {name}：{state}')
     raise SystemExit(int(failed))
 
 

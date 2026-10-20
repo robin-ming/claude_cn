@@ -20,10 +20,11 @@ LOG = logging.getLogger('claude-cn')
 ADDRESS = ('127.0.0.1', 18081)
 SOCKET = '/run/claude-cn-clip/clip.sock'
 INSTALL_CONFIG = '/etc/claude-cn/install.json'
+POLICY_CONFIG = '/etc/claude-cn/policy.json'
 PROXY_USER = 'claude-cn-proxy'
 XCLIP = '/usr/bin/xclip'
 WLPASTE = '/usr/bin/wl-paste'
-ALLOWED = re.compile(r'\A(?:image/(?:png|jpeg|jpg|gif|webp|bmp)|text/plain)\Z')
+ALLOWED = re.compile(r'\A(?:image/(?:png|jpeg|jpg|gif|webp|bmp)|text/plain(?:;charset=utf-8)?|UTF8_STRING)\Z')
 MAX_BYTES = 16 * 1024 * 1024
 MAX_LINE = 256
 TOOL_TIMEOUT = 5
@@ -33,6 +34,10 @@ RATE_WINDOW = 60
 
 class BridgeError(Exception):
     pass
+
+
+def is_text(mime):
+    return mime.startswith('text/') or mime == 'UTF8_STRING'
 
 
 def request(line, connect=None):
@@ -168,8 +173,10 @@ def tool_plan(mime, session, home):
     if session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR') and os.access(WLPASTE, os.X_OK):
         if mime is None:
             argv = [WLPASTE, '-l']
-        elif mime == 'text/plain':
-            argv = [WLPASTE]
+        elif is_text(mime):
+            # Explicit type only: a bare wl-paste auto-selects whatever the
+            # offer lists and could return content outside the whitelist.
+            argv = [WLPASTE, '--no-newline', '--type', mime]
         else:
             argv = [WLPASTE, '--type', mime]
         return argv, {**common, 'WAYLAND_DISPLAY': session['WAYLAND_DISPLAY'],
@@ -177,9 +184,35 @@ def tool_plan(mime, session, home):
     raise BridgeError('no clipboard tool for this session')
 
 
+def _wait_bounded(pid, deadline):
+    """Poll for the child's exit status; None when still alive at the deadline."""
+    while True:
+        try:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+        except OSError:
+            return 0
+        if waited:
+            return status
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(remaining, 0.05))
+
+
+def _terminate(pid):
+    """Best-effort SIGKILL then a bounded reap; a stuck child is abandoned."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    if _wait_bounded(pid, time.monotonic() + 2) is None:
+        LOG.error('clipboard tool pid %d survived SIGKILL; abandoning it', pid)
+
+
 def run_tool(argv, env, uid, gid, timeout=TOOL_TIMEOUT):
     """Exec the tool as the user and capture stdout, bounded by size and time."""
     read_fd, write_fd = os.pipe()
+    deadline = time.monotonic() + timeout
     pid = os.fork()
     if pid == 0:
         os.close(read_fd)
@@ -197,8 +230,7 @@ def run_tool(argv, env, uid, gid, timeout=TOOL_TIMEOUT):
             pass
         os._exit(127)
     os.close(write_fd)
-    chunks, total = [], 0
-    deadline = time.monotonic() + timeout
+    chunks, total, status = [], 0, None
     try:
         while True:
             remaining = deadline - time.monotonic()
@@ -213,25 +245,26 @@ def run_tool(argv, env, uid, gid, timeout=TOOL_TIMEOUT):
             if total > MAX_BYTES:
                 raise BridgeError('clipboard data exceeds size limit')
             chunks.append(chunk)
+        # Reading and reaping share one deadline: EOF alone never blocks a slot.
+        status = _wait_bounded(pid, deadline)
     except BaseException:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
-        os.waitpid(pid, 0)
+        _terminate(pid)
         raise
     finally:
         os.close(read_fd)
-    if os.waitpid(pid, 0)[1]:
+    if status is None:
+        raise BridgeError('clipboard tool timed out')
+    if status:
         raise BridgeError('clipboard tool failed')
     return b''.join(chunks)
 
 
 class Context:
-    def __init__(self, uid, gid, home, runner=run_tool, discover=discover_env):
+    def __init__(self, uid, gid, home, runner=run_tool, discover=discover_env, allow_text=False):
         self.uid, self.gid, self.home = uid, gid, home
         self.runner = runner
         self.discover = discover
+        self.allow_text = allow_text
         self._session, self._found = None, 0.0
         self.history = collections.deque()
 
@@ -250,6 +283,19 @@ class Context:
         self.history.append(now)
         return True
 
+    def retry_text(self, mime, argv, env, exc):
+        """Fall back to the alternate plain-text target when the first is absent."""
+        if str(exc) != 'clipboard tool failed':
+            raise exc
+        if mime == 'text/plain' and argv[0] == XCLIP:
+            retry = [XCLIP, '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o']
+        elif mime == 'text/plain' and argv[0] == WLPASTE:
+            retry = [WLPASTE, '--no-newline', '--type', 'text/plain;charset=utf-8']
+        else:
+            raise exc
+        LOG.info('retrying clipboard text: %s', ' '.join(retry))
+        return self.runner(retry, env, self.uid, self.gid)
+
     def handle(self, line):
         """Return the raw response bytes for one request line."""
         if line == 'TARGETS':
@@ -263,6 +309,9 @@ class Context:
             if not ALLOWED.match(mime):
                 LOG.warning('refused mime %r', mime)
                 return b'ERR mime not allowed\n'
+            if is_text(mime) and not self.allow_text:
+                LOG.warning('text clipboard disabled by policy')
+                return b'ERR text disabled\n'
         if not self.allow():
             LOG.warning('rate limited')
             return b'ERR rate limited\n'
@@ -271,7 +320,10 @@ class Context:
             return b'ERR no graphical session\n'
         try:
             argv, env = tool_plan(mime, session, self.home)
-            data = self.runner(argv, env, self.uid, self.gid)
+            try:
+                data = self.runner(argv, env, self.uid, self.gid)
+            except BridgeError as exc:
+                data = self.retry_text(mime, argv, env, exc)
         except BridgeError as exc:
             LOG.warning('clip %s: %s', line, exc)
             return f'ERR {exc}\n'.encode('ascii', 'replace')
@@ -335,14 +387,20 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog='claude-cn-clip')
     parser.add_argument('--socket', default=SOCKET)
     parser.add_argument('--install-config', default=INSTALL_CONFIG)
+    parser.add_argument('--config', default=POLICY_CONFIG)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     data = json.loads(Path(args.install_config).read_text())
     uid = data.get('uid')
     if type(uid) is not int or uid <= 0:
         raise SystemExit('claude-cn: invalid install configuration')
+    try:
+        policy = json.loads(Path(args.config).read_text())
+    except (OSError, ValueError):
+        policy = {}
+    allow_text = policy.get('allow_clipboard_text') is True
     account = pwd.getpwuid(uid)
-    context = Context(uid, account.pw_gid, account.pw_dir)
+    context = Context(uid, account.pw_gid, account.pw_dir, allow_text=allow_text)
     try:
         os.unlink(args.socket)
     except FileNotFoundError:
@@ -350,5 +408,6 @@ def main(argv=None):
     os.umask(0o077)
     with Server(args.socket, context) as server:
         grant_relay_access(args.socket)
-        LOG.info('claude-cn clipboard bridge ready (read-only)')
+        LOG.info('claude-cn clipboard bridge ready (read-only, text %s)',
+                 'enabled' if allow_text else 'disabled')
         server.serve_forever()

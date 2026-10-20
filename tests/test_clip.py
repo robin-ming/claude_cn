@@ -3,8 +3,10 @@ import io
 import os
 import socket
 import socketserver
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -135,6 +137,16 @@ class ContextTests(unittest.TestCase):
                                ('FOO', b'ERR malformed request\n'),
                                ('', b'ERR malformed request\n')):
             self.assertEqual(context.handle(line), expected, line)
+        for mime in ('text/plain;charset=utf-8', 'UTF8_STRING', 'text/plain'):
+            self.assertTrue(clip.ALLOWED.match(mime), mime)
+        self.assertFalse(clip.ALLOWED.match('text/html;charset=utf-8'))
+
+    def test_text_disabled_by_default(self):
+        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'text',
+                               discover=lambda uid: {'DISPLAY': ':0'})
+        self.assertEqual(context.handle('GET text/plain'), b'ERR text disabled\n')
+        context.allow_text = True
+        self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
 
     def test_serves_targets_and_mimes_via_x11(self):
         calls = []
@@ -143,7 +155,7 @@ class ContextTests(unittest.TestCase):
             calls.append((argv, env, uid, gid))
             return b'hello'
 
-        context = clip.Context(1000, 1000, '/home/u', runner=runner,
+        context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
                                discover=lambda uid: {'DISPLAY': ':0', 'XAUTHORITY': '/home/u/.Xauthority'})
         with mock.patch.object(clip, 'XCLIP', '/bin/true'):
             self.assertEqual(context.handle('TARGETS'), b'OK 5\nhello')
@@ -154,6 +166,21 @@ class ContextTests(unittest.TestCase):
                                'XAUTHORITY': '/home/u/.Xauthority'})
         self.assertEqual((uid, gid), (1000, 1000))
 
+    def test_x11_text_falls_back_to_utf8_string(self):
+        calls = []
+
+        def runner(argv, env, uid, gid):
+            calls.append(argv)
+            if len(calls) == 1:
+                raise clip.BridgeError('clipboard tool failed')
+            return b'text'
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
+                               discover=lambda uid: {'DISPLAY': ':0'})
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'):
+            self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
+        self.assertEqual(calls[1], ['/bin/true', '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o'])
+
     def test_wayland_plan(self):
         calls = []
 
@@ -161,29 +188,47 @@ class ContextTests(unittest.TestCase):
             calls.append(argv)
             return b'x'
 
-        context = clip.Context(1000, 1000, '/home/w', runner=runner,
+        context = clip.Context(1000, 1000, '/home/w', runner=runner, allow_text=True,
                                discover=lambda uid: {'WAYLAND_DISPLAY': 'wayland-0',
                                                      'XDG_RUNTIME_DIR': '/run/user/1000'})
         with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
             for line in ('TARGETS', 'GET text/plain', 'GET image/png'):
                 self.assertTrue(context.handle(line).startswith(b'OK 1\n'), line)
-        self.assertEqual(calls, [['/bin/true', '-l'], ['/bin/true'], ['/bin/true', '--type', 'image/png']])
+        self.assertEqual(calls, [['/bin/true', '-l'],
+                                 ['/bin/true', '--no-newline', '--type', 'text/plain'],
+                                 ['/bin/true', '--type', 'image/png']])
+
+    def test_wayland_text_falls_back_to_charset_variant(self):
+        calls = []
+
+        def runner(argv, env, uid, gid):
+            calls.append(argv)
+            if len(calls) == 1:
+                raise clip.BridgeError('clipboard tool failed')
+            return b'text'
+
+        context = clip.Context(1000, 1000, '/home/w', runner=runner, allow_text=True,
+                               discover=lambda uid: {'WAYLAND_DISPLAY': 'wayland-0',
+                                                     'XDG_RUNTIME_DIR': '/run/user/1000'})
+        with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
+            self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
+        self.assertEqual(calls[1], ['/bin/true', '--no-newline', '--type', 'text/plain;charset=utf-8'])
 
     def test_no_tool_available(self):
-        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x',
+        context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x', allow_text=True,
                                discover=lambda uid: {'DISPLAY': ':0'})
         with mock.patch.object(clip, 'XCLIP', '/nonexistent/xclip'), mock.patch.object(clip, 'WLPASTE', '/nonexistent/wl-paste'):
             self.assertEqual(context.handle('GET text/plain'), b'ERR no clipboard tool for this session\n')
 
     def test_no_graphical_session(self):
         context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'x', discover=lambda uid: None)
-        self.assertEqual(context.handle('GET text/plain'), b'ERR no graphical session\n')
+        self.assertEqual(context.handle('GET image/png'), b'ERR no graphical session\n')
 
     def test_rate_limit(self):
         context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'', discover=lambda uid: {'DISPLAY': ':0'})
         for _ in range(clip.RATE_LIMIT):
-            self.assertEqual(context.handle('GET text/plain'), b'OK 0\n')
-        self.assertEqual(context.handle('GET text/plain'), b'ERR rate limited\n')
+            self.assertEqual(context.handle('GET image/png'), b'OK 0\n')
+        self.assertEqual(context.handle('GET image/png'), b'ERR rate limited\n')
 
 
 class DiscoverEnvTests(unittest.TestCase):
@@ -223,6 +268,16 @@ class RunToolTests(unittest.TestCase):
         with self.assertRaises(clip.BridgeError):
             clip.run_tool(['/bin/sleep', '30'], {'PATH': '/usr/bin:/bin'},
                           os.getuid(), os.getgid(), timeout=0.5)
+
+    def test_eof_then_stuck_child_is_bounded(self):
+        # Reviewer reproduction: the child closes stdout and keeps running; the
+        # call must still fail by the deadline instead of waiting it out.
+        script = 'import os,time;os.close(1);time.sleep(30)'
+        start = time.monotonic()
+        with self.assertRaises(clip.BridgeError):
+            clip.run_tool([sys.executable, '-I', '-c', script], {'PATH': '/usr/bin:/bin'},
+                          os.getuid(), os.getgid(), timeout=0.5)
+        self.assertLess(time.monotonic() - start, 5)
 
 
 class GrantRelayTests(unittest.TestCase):

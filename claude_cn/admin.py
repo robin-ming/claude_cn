@@ -12,6 +12,8 @@ INSTALL = Path('/etc/claude-cn/install.json')
 SEED = Path('/etc/claude-cn/provider.json')
 SUDOERS = Path('/etc/sudoers.d/claude-cn')
 UNITS = ['claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-clip.service', 'claude-cn-clip-relay.service', 'claude-cn-relay.service', 'claude-cn-launch.service', 'claude-cn-update.timer']
+# Clipboard support degrades gracefully; it must never block setup or upgrades.
+OPTIONAL_UNITS = ('claude-cn-clip.service', 'claude-cn-clip-relay.service')
 
 
 def run(args):
@@ -56,9 +58,18 @@ def setup(user):
     SUDOERS.unlink(missing_ok=True)
     run(['/usr/bin/systemctl', 'daemon-reload'])
     run(['/usr/bin/systemctl', 'enable', *UNITS])
-    run(['/usr/bin/systemctl', 'start', *[u for u in UNITS if u != 'claude-cn-launch.service']])
+    run(['/usr/bin/systemctl', 'start', *[u for u in UNITS
+                                         if u != 'claude-cn-launch.service' and u not in OPTIONAL_UNITS]])
+    for unit in OPTIONAL_UNITS:
+        subprocess.run(['/usr/bin/systemctl', 'start', unit], check=False,
+                       env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
     run(['/usr/bin/systemctl', 'restart', 'claude-cn-launch.service'])
     for unit in UNITS:
+        if unit in OPTIONAL_UNITS:
+            if subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', unit], check=False,
+                              env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}).returncode:
+                print(f'提示：{unit} 未运行，剪贴板粘贴不可用；会话启动不受影响。')
+            continue
         run(['/usr/bin/systemctl', 'is-active', '--quiet', unit])
     print('已启用独立 claude-cn。供应商配置：' + str(settings))
     print('运行 claude-cn doctor 和 claude-cn self-test；API Key 为空时先运行 claude-cn configure。')

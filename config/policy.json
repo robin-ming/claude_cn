@@ -15,5 +15,6 @@
   ],
   "ports": [80, 443],
   "connect_timeout_seconds": 10,
-  "idle_timeout_seconds": 300
+  "idle_timeout_seconds": 300,
+  "allow_clipboard_text": false
 }
