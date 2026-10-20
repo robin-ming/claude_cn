@@ -181,6 +181,21 @@ class ContextTests(unittest.TestCase):
             self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
         self.assertEqual(calls[1], ['/bin/true', '-selection', 'clipboard', '-t', 'UTF8_STRING', '-o'])
 
+    def test_charset_and_utf8_string_requests_pass_protocol(self):
+        calls = []
+
+        def runner(argv, env, uid, gid):
+            calls.append(argv)
+            return b'x'
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
+                               discover=lambda uid: {'DISPLAY': ':0'})
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'):
+            for line in ('GET text/plain;charset=utf-8', 'GET UTF8_STRING'):
+                self.assertTrue(context.handle(line).startswith(b'OK 1\n'), line)
+        self.assertEqual(calls[0][-2], 'text/plain;charset=utf-8')
+        self.assertEqual(calls[1][-2], 'UTF8_STRING')
+
     def test_wayland_plan(self):
         calls = []
 
@@ -269,15 +284,23 @@ class RunToolTests(unittest.TestCase):
             clip.run_tool(['/bin/sleep', '30'], {'PATH': '/usr/bin:/bin'},
                           os.getuid(), os.getgid(), timeout=0.5)
 
-    def test_eof_then_stuck_child_is_bounded(self):
-        # Reviewer reproduction: the child closes stdout and keeps running; the
-        # call must still fail by the deadline instead of waiting it out.
-        script = 'import os,time;os.close(1);time.sleep(30)'
-        start = time.monotonic()
-        with self.assertRaises(clip.BridgeError):
-            clip.run_tool([sys.executable, '-I', '-c', script], {'PATH': '/usr/bin:/bin'},
-                          os.getuid(), os.getgid(), timeout=0.5)
-        self.assertLess(time.monotonic() - start, 5)
+    def test_eof_then_stuck_child_is_bounded_and_killed(self):
+        # Reviewer reproduction: the child closes stdout and keeps running. The
+        # call must fail by the deadline AND the child must actually be gone.
+        with tempfile.NamedTemporaryFile('r', suffix='.pid') as handle:
+            script = ('import os,sys,time;os.close(1);'
+                      'open(sys.argv[1],"w").write(str(os.getpid()));time.sleep(30)')
+            start = time.monotonic()
+            with self.assertRaises(clip.BridgeError):
+                clip.run_tool([sys.executable, '-I', '-c', script, handle.name],
+                              {'PATH': '/usr/bin:/bin'}, os.getuid(), os.getgid(), timeout=0.5)
+            self.assertLess(time.monotonic() - start, 5)
+            pid = int(handle.read())
+            for _ in range(80):
+                if not Path(f'/proc/{pid}').exists():
+                    break
+                time.sleep(0.05)
+            self.assertFalse(Path(f'/proc/{pid}').exists(), 'child survived the timeout')
 
 
 class GrantRelayTests(unittest.TestCase):
@@ -301,7 +324,7 @@ class DaemonEndToEnd(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp)/'clip.sock')
             context = clip.Context(1000, 1000, '/home/u', runner=lambda *a: b'data',
-                                   discover=lambda uid: {'DISPLAY': ':0'})
+                                   discover=lambda uid: {'DISPLAY': ':0'}, allow_text=True)
             with running(clip.Server(path, context)):
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(3)
@@ -313,7 +336,14 @@ class DaemonEndToEnd(unittest.TestCase):
                         if not part:
                             break
                         data += part
+                context.allow_text = False
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(3)
+                    client.connect(path)
+                    client.sendall(b'GET text/plain\n')
+                    refused = client.recv(4096)
         self.assertEqual(data, b'OK 4\ndata')
+        self.assertEqual(refused, b'ERR text disabled\n')
 
 
 if __name__ == '__main__':

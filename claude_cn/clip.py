@@ -247,13 +247,14 @@ def run_tool(argv, env, uid, gid, timeout=TOOL_TIMEOUT):
             chunks.append(chunk)
         # Reading and reaping share one deadline: EOF alone never blocks a slot.
         status = _wait_bounded(pid, deadline)
+        if status is None:
+            # Still alive: raise inside the guarded block so the child is killed.
+            raise BridgeError('clipboard tool timed out')
     except BaseException:
         _terminate(pid)
         raise
     finally:
         os.close(read_fd)
-    if status is None:
-        raise BridgeError('clipboard tool timed out')
     if status:
         raise BridgeError('clipboard tool failed')
     return b''.join(chunks)
@@ -301,7 +302,8 @@ class Context:
         if line == 'TARGETS':
             mime = None
         else:
-            match = re.fullmatch(r'GET ([A-Za-z0-9/._+-]+)', line)
+            # Split command from type first; the mime whitelist is the only gate.
+            match = re.fullmatch(r'GET (\S+)', line)
             if not match:
                 LOG.warning('malformed request %r', line)
                 return b'ERR malformed request\n'
