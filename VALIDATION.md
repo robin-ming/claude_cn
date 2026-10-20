@@ -1,3 +1,25 @@
+# 验证记录：0.3.1
+
+## 本次变更（代码 review 修复）
+
+- 移除 deb 中遗留的 sudo 依赖；启动代理轮询回收已结束会话，上限不再计入僵尸进程；客户端对畸形服务响应给出明确错误；`configure` 非交互环境跳过 Key 输入保留原值；修正 README 安装路径并注明沙箱内测试限制。
+
+## 安装前验证
+
+- 单元测试 41 项（新增非交互 configure 测试）：在 claude-cn 会话内 31 项通过；10 项 broker/proxy 测试因 AF_UNIX socket 被本工具隔离拒绝而无法在会话内运行，错误集合与 0.3.0 完全一致，需在会话外以 `make test` 复核全量。
+- `verify_deb.py` 通过：双包结构、root 归属、provider 种子 0600、凭据分布、维护脚本语法、隔离导入检查；公共包重建逐字节一致，校验和更新于 `dist/SHA256SUMS`。
+- 包元数据 `Depends` 不再包含 sudo；私有包权限 0600。
+
+## 0.3.1 安装后核对（在 claude-cn 会话内执行）
+
+- 已安装版本 0.3.1+local1；`dpkg-query` 确认 Depends 无 sudo。
+- `/usr/lib/claude-cn/claude_cn`、`payload.py`、`service.py` 及五个 systemd 单元与仓库逐字节一致。
+- `provider.json` 0600 root:root；旧 sudoers 文件与 enter 辅助程序均已不存在。
+- `/run/claude-cn-launch/control.sock` 与 `/run/netns/claude-cn` 存在；本核对会话本身即经 0.3.1 broker 启动。
+- 局限：会话内 seccomp 禁止 AF_UNIX，`systemctl`、doctor 服务项、`self-test`、`verify_launch.py` 无法由会话内代跑，需在会话外普通终端执行后确认。
+
+以下为 0.3.0 验证记录。
+
 # 验证记录：0.3.0
 
 ## 本次已完成
