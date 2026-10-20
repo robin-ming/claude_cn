@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-cn"
-version = "0.3.0"
+version = "0.3.1"
 description = "Generic Claude Code provider launcher with mainland direct networking and foreign allowlists"
 requires-python = ">=3.12"
 license = {file = "LICENSE"}

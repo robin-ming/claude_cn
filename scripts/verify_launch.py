@@ -10,6 +10,7 @@ import tempfile
 import termios
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = (ROOT/'VERSION').read_text().strip()
 PAYLOAD = r'''
 import json,os,sys
 from pathlib import Path
@@ -90,7 +91,7 @@ def main():
     check('obsolete sudoers removed', not Path('/etc/sudoers.d/claude-cn').exists())
     report = {'checks': checks, 'details': details}
     (ROOT/'reports').mkdir(exist_ok=True)
-    (ROOT/'reports/installed-launch-0.3.0.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
+    (ROOT/f'reports/installed-launch-{VERSION}.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
     raise SystemExit(0 if all(item['ok'] for item in checks) else 1)
 
 

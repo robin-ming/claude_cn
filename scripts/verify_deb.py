@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = (ROOT/'VERSION').read_text().strip()
 
 
 def archive(path, option):
@@ -54,14 +55,14 @@ def verify(path, private, token):
                                  'import sys;sys.path.insert(0,sys.argv[1]);'
                                  'from claude_cn.cli import main;sys.argv=["claude-cn","version"];main()', lib],
                                 text=True, capture_output=True, check=True)
-        assert result.stdout.strip() == 'claude-cn 0.3.0'
+        assert result.stdout.strip() == 'claude-cn ' + VERSION
         print('PASS', path.name, 'metadata, permissions, isolated imports, credential variant, maintainer syntax')
 
 
 def main():
     token = json.loads((ROOT/'config/zhipu.local.json').read_text())['env']['ANTHROPIC_AUTH_TOKEN']
-    public = ROOT/'dist/claude-cn_0.3.0_all.deb'
-    private = ROOT/'dist/claude-cn_0.3.0+local1_all.deb'
+    public = ROOT/f'dist/claude-cn_{VERSION}_all.deb'
+    private = ROOT/f'dist/claude-cn_{VERSION}+local1_all.deb'
     verify(public, False, token)
     verify(private, True, token)
     assert private.stat().st_mode & 0o777 == 0o600
