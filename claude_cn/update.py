@@ -42,19 +42,27 @@ def covered_space(rows):
 def exclude_space(networks, remove):
     """Address space of networks not covered by remove.
 
-    CIDR networks are either disjoint or nested, so exclusion reduces to
-    address_exclude on contained pieces.
+    CIDR networks are either disjoint or nested; containment is decided per
+    remaining piece, because pieces split by an earlier exclusion may be
+    disjoint from the network currently being removed.
     """
     pieces = []
     for net in networks:
         remaining = [net]
         for other in remove:
-            if other.version != net.version or not other.overlaps(net):
-                continue
-            if net.subnet_of(other):
-                remaining = []
+            reduced = []
+            for piece in remaining:
+                if other.version != piece.version or not other.overlaps(piece):
+                    reduced.append(piece)
+                elif piece.subnet_of(other):
+                    pass
+                elif other.subnet_of(piece):
+                    reduced.extend(piece.address_exclude(other))
+                else:
+                    reduced.append(piece)
+            remaining = reduced
+            if not remaining:
                 break
-            remaining = [piece for sub in remaining for piece in sub.address_exclude(other)]
         pieces.extend(remaining)
     return pieces
 

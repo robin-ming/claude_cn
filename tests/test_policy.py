@@ -161,6 +161,19 @@ class PolicyTests(unittest.TestCase):
         churned = {'networks': ['1.0.0.0/8', '2.128.0.0/9', '240e::/32']}
         check_plausible(old, churned)
 
+    def test_updater_allows_small_growth_across_split_pieces(self):
+        # Reviewer reproduction: exclusions must judge containment per split
+        # piece; judging against the original network crashed address_exclude.
+        import ipaddress
+        from claude_cn.update import check_plausible, exclude_space
+        old = {'networks': ['1.0.0.0/26', '1.0.0.64/26', '1.0.0.128/26', '1.0.0.192/27', '240e::/32']}
+        grown = {'networks': ['1.0.0.0/24', '240e::/32']}
+        check_plausible(old, grown)  # 224 -> 256 addresses, +14.3%: allowed
+        remainder = exclude_space([ipaddress.ip_network('1.0.0.0/24')],
+                                  [ipaddress.ip_network(row) for row in
+                                   ('1.0.0.0/26', '1.0.0.64/26', '1.0.0.128/26', '1.0.0.192/27')])
+        self.assertEqual([str(net) for net in remainder], ['1.0.0.224/27'])
+
 
 if __name__ == '__main__':
     unittest.main()
