@@ -48,7 +48,8 @@ def configure(args):
         if parsed.scheme not in ('https', 'http') or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError('供应商 API 地址必须为不含凭据的 HTTP(S) URL')
         data.setdefault('env', {})['ANTHROPIC_BASE_URL'] = options.base_url
-    token = getpass.getpass('供应商 API Key（留空保留原值）：')
+    # Piped or scripted runs cannot answer the prompt; keep the existing key.
+    token = getpass.getpass('供应商 API Key（留空保留原值）：') if sys.stdin.isatty() else ''
     if token:
         data.setdefault('env', {})['ANTHROPIC_AUTH_TOKEN'] = token
     if options.model:

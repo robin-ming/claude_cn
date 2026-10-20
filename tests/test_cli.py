@@ -14,6 +14,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)/'settings.json'
             with patch.object(cli, 'settings_path', return_value=target), \
+                 patch('sys.stdin'), \
                  patch.object(cli.getpass, 'getpass', return_value='test-provider-key'), \
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 cli.configure(['--base-url', 'https://api.example.cn/anthropic', '--model', 'custom-model'])
@@ -22,6 +23,21 @@ class CliTests(unittest.TestCase):
             self.assertEqual(data['ANTHROPIC_MODEL'], 'custom-model')
             self.assertEqual(data['ANTHROPIC_AUTH_TOKEN'], 'test-provider-key')
             self.assertNotIn('test-provider-key', output.getvalue())
+
+    def test_configure_without_terminal_keeps_existing_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)/'settings.json'
+            target.write_text('{"env": {"ANTHROPIC_AUTH_TOKEN": "old-key"}}\n')
+            with patch.object(cli, 'settings_path', return_value=target), \
+                 patch('sys.stdin') as stdin, \
+                 patch.object(cli.getpass, 'getpass', side_effect=AssertionError('unexpected prompt')) as prompted, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                stdin.isatty.return_value = False
+                cli.configure(['--model', 'new-model'])
+            data = json.loads(target.read_text())['env']
+            self.assertEqual(data['ANTHROPIC_AUTH_TOKEN'], 'old-key')
+            self.assertEqual(data['ANTHROPIC_MODEL'], 'new-model')
+            prompted.assert_not_called()
 
     def test_default_zhipu_template_has_no_key(self):
         env = json.loads(cli.template_path().read_text())['env']
