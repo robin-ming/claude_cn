@@ -128,6 +128,28 @@ class PolicyTests(unittest.TestCase):
             parse_list('', 6)
         self.assertEqual(parse_list('223.5.5.0/24\n', 4), ['223.5.5.0/24'])
 
+    def test_updater_counts_only_distinct_networks(self):
+        # Reviewer reproduction: repeated records must not satisfy a minimum
+        # that exists to prove the snapshot is complete.
+        text = '223.5.5.0/24\n' * 3
+        with self.assertRaises(ValueError):
+            parse_list(text, 4, minimum=3)
+        self.assertEqual(parse_list(text, 4, minimum=1), ['223.5.5.0/24'])
+
+    def test_updater_rejects_implausible_coverage_swings(self):
+        from claude_cn.update import check_plausible
+        old = {'networks': ['1.0.0.0/8', '240e::/32']}
+        tiny = {'networks': ['1.0.1.0/24', '240e::/32']}
+        huge = {'networks': ['1.0.0.0/6', '240e::/32']}
+        sane = {'networks': ['1.0.0.0/8', '240e::/31']}
+        for bad in (tiny, huge):
+            with self.assertRaises(ValueError):
+                check_plausible(old, bad)
+        check_plausible(old, sane)
+        check_plausible(None, sane)
+        with self.assertRaises(ValueError):
+            check_plausible(old, {'networks': ['1.0.0.0/8']})
+
 
 if __name__ == '__main__':
     unittest.main()

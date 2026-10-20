@@ -26,9 +26,38 @@ def parse_list(text, version, minimum=1):
         if not net.network_address.is_global or not net.broadcast_address.is_global:
             raise ValueError('non-global country prefix: ' + line)
         networks.append(net)
-    if len(networks) < minimum:
-        raise ValueError(f'incomplete IPv{version} data: {len(networks)} entries')
-    return [str(net) for net in ipaddress.collapse_addresses(networks)]
+    # Collapse first: duplicates and overlapping entries must not count towards
+    # the minimum, or a file of one network repeated 1000 times would pass.
+    collapsed = [str(net) for net in ipaddress.collapse_addresses(networks)]
+    if len(collapsed) < minimum:
+        raise ValueError(f'incomplete IPv{version} data: {len(collapsed)} distinct entries')
+    return collapsed
+
+
+def covered_space(rows):
+    """Total address space of a network list, used for update sanity checks."""
+    return sum(int(ipaddress.ip_network(row).num_addresses) for row in rows)
+
+
+def check_plausible(old_data, new_data):
+    """Reject snapshots whose per-family coverage collapses or explodes.
+
+    A wrong library could mark foreign addresses as mainland; unusual swings
+    against the current snapshot keep the old library in place instead.
+    """
+    for version in ('4', '6'):
+        family = [row for row in new_data['networks']
+                  if ipaddress.ip_network(row).version == int(version)]
+        if old_data:
+            old = covered_space([row for row in old_data.get('networks', [])
+                                 if ipaddress.ip_network(row).version == int(version)])
+        else:
+            old = 0
+        new = covered_space(family)
+        if not new:
+            raise ValueError(f'new snapshot covers no IPv{version} space')
+        if old and not 0.5 <= new / old <= 2.0:
+            raise ValueError(f'IPv{version} coverage changed {new / old:.2f}x; keeping the old library')
 
 
 def download_snapshot(proxy=None):
@@ -78,8 +107,19 @@ def main():
         proxy = proxy or json.loads(Path(args.download_config).read_text()).get('http_proxy')
     if proxy and not proxy.startswith(('http://', 'https://')):
         parser.error('download proxy must use http:// or https://')
+    output = Path(args.output)
+    old_data = None
+    if output.exists():
+        try:
+            old_data = json.loads(output.read_text())
+        except ValueError:
+            old_data = None
     data = download_snapshot(proxy)
-    atomic_write(args.output, data)
+    try:
+        check_plausible(old_data, data)
+    except ValueError as exc:
+        raise SystemExit(f'claude-cn update: {exc}') from None
+    atomic_write(output, data)
     print('Country snapshot updated:', json.dumps(data['counts']))
 
 
