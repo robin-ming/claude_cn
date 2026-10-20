@@ -1,3 +1,24 @@
+# 验证记录：0.4.0
+
+## 本次变更（剪贴板粘贴支持）
+
+- 沙箱内可直接向 Claude Code 粘贴图片与文本：`xclip`/`wl-paste` 垫片经回环 `127.0.0.1:18081` 与命名空间内 relay 到达宿主只读剪贴板守护，Claude Code 无需改动。
+- 守护从 `/proc` 发现授权用户图形会话环境，降权后运行真实 xclip（X11）/wl-paste（Wayland）；MIME 白名单（六种图片与 `text/plain`）、16 MiB 上限、5 秒超时、每分钟 30 次限速、逐次审计日志；写入方向与 primary 选择区不提供。
+- 新增 `claude-cn-clip.service` 与 `claude-cn-clip-relay.service`，接入 admin UNITS、reset 停止列表、doctor 检查与 prerm 停用列表；deb 依赖加入 xclip 与 wl-clipboard；沙箱 PATH 前置 `/usr/lib/claude-cn/sandbox-bin`。
+
+## 安装前验证
+
+- 单元测试 63 项（新增剪贴板 22 项：shim 参数矩阵与回环 TCP 端到端、MIME 白名单、`/proc` 会话发现、fork 执行/超时/失败路径、限速）：在 claude-cn 会话内 52 项通过；11 项 broker/proxy/守护 E2E 测试因 AF_UNIX socket 被本工具隔离拒绝而无法在会话内运行（原 10 项 + 新增 1 项 clip 守护 E2E），需在会话外以 `make test` 复核全量。
+- `systemd-analyze verify` 通过：claude-cn-clip.service、claude-cn-clip-relay.service、修改后的 claude-cn-launch.service。
+- `verify_deb.py` 通过：双包结构（含新单元与 sandbox-bin 垫片）、root 归属、provider 种子 0600、凭据分布、维护脚本语法、隔离导入与版本一致性检查；公共包重建逐字节一致，校验和更新于 `dist/SHA256SUMS`，私有包权限 0600。
+- 依据既有 relay 模式复用回环通道，未改动任何 nftables 规则；`entry.py` 强制活跃单元清单未加入 clip（剪贴板不可用不阻断会话启动）。
+
+## 0.4.0 安装后核对
+
+（待用户安装后补记：文件级核对、doctor 七单元、实贴测试、clip 审计日志。）
+
+以下为 0.3.1 验证记录。
+
 # 验证记录：0.3.1
 
 ## 本次变更（代码 review 修复）
