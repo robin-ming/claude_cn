@@ -1,0 +1,5 @@
+#!/usr/bin/python3 -I
+import sys
+sys.path.insert(0, '/usr/lib/claude-cn')
+from claude_cn.clip import xclip_main
+raise SystemExit(xclip_main(sys.argv[1:]))

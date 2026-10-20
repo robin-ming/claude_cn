@@ -13,6 +13,7 @@ from .runtime import expand_path, read_runtime
 ROOT = Path('/usr/lib/claude-cn')
 INSTALL_CONFIG = Path('/etc/claude-cn/install.json')
 PROXY = 'http://127.0.0.1:18080'
+SANDBOX_BIN = str(ROOT / 'sandbox-bin')
 ENV_NAMES = {'PATH', 'TERM', 'COLORTERM', 'LANG', 'LANGUAGE', 'TZ', 'EDITOR',
              'VISUAL', 'NO_COLOR', 'FORCE_COLOR', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'}
 
@@ -75,6 +76,8 @@ def enter(request, args, uid, stdio, tty=False):
                CLAUDE_CN_SETTINGS=str(expand_path(runtime['settings_path'], account.pw_dir)),
                CLAUDE_CN_EXECUTABLE=runtime['claude_path'])
     env.setdefault('PATH', '/usr/local/bin:/usr/bin:/bin')
+    # Clipboard shims must shadow any host xclip/wl-paste inside the sandbox.
+    env['PATH'] = SANDBOX_BIN + ':' + env['PATH']
     env.setdefault('TERM', 'xterm-256color')
     for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
         env[key] = PROXY
