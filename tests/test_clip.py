@@ -217,6 +217,33 @@ class ContextTests(unittest.TestCase):
             self.assertEqual(context.handle('GET image/png'), b'OK 5\nimage')
         self.assertEqual(calls[-1], ['/bin/true', '--type', 'image/png'])
 
+    def test_hung_x11_text_skips_to_wayland_within_budget(self):
+        # Reviewer reproduction: a hung X11 burns the budget on both of its
+        # text targets before Wayland is reached. After the fix the timeout
+        # skips X11's remaining types entirely, and text still succeeds.
+        calls = []
+
+        def runner(argv, env, uid, gid, timeout=5):
+            calls.append(argv)
+            if '-selection' in argv:
+                time.sleep(timeout)
+                raise clip.BridgeError('clipboard tool timed out')
+            return b'text'
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'},
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
+        start = time.monotonic()
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'), mock.patch.object(clip, 'WLPASTE', '/bin/true'), \
+             mock.patch.object(clip, 'TOOL_TIMEOUT', 0.6), \
+             mock.patch.object(clip, 'REQUEST_BUDGET', 3), mock.patch.object(clip, 'TRANSMIT_RESERVE', 0.2):
+            self.assertEqual(context.handle('GET text/plain'), b'OK 4\ntext')
+        self.assertGreater(time.monotonic() - start, 0.5)  # the timeout really elapsed
+        self.assertIn('-selection', ' '.join(calls[0]))
+        self.assertNotIn('UTF8_STRING', ' '.join(' '.join(argv) for argv in calls))
+        self.assertEqual(calls[-1], ['/bin/true', '--no-newline', '--type', 'text/plain'])
+
     def test_attempts_share_one_request_budget(self):
         # Reviewer reproduction: several slow failures plus a late success
         # outrun the client wait. The shared budget must stop the chain first.

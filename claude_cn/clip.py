@@ -320,32 +320,39 @@ class Context:
         """Try each backend and text target until one yields data.
 
         Every attempt draws from one shared request budget, so fallbacks can
-        never outlast the client's wait; a hung backend yields to the next
-        within whatever budget remains.
+        never outlast the client's wait. An absent target retries the other
+        type of the same backend; a hung backend skips straight to the next
+        backend with whatever budget remains.
         """
         attempts = []
         for backend in self.backends(sessions):
             argv, env = tool_plan(mime, sessions[backend], self.home, backend)
-            attempts.append((argv, env))
+            attempts.append((backend, argv, env))
             alternative = self.text_alternative(mime, backend)
             if alternative:
-                attempts.append((alternative, env))
+                attempts.append((backend, alternative, env))
         if not attempts:
             raise BridgeError('no clipboard tool for this session')
         deadline = time.monotonic() + REQUEST_BUDGET - TRANSMIT_RESERVE
         failure = BridgeError('clipboard tool failed')
-        for argv, env in attempts:
+        index = 0
+        while index < len(attempts):
+            backend, argv, env = attempts[index]
             remaining = deadline - time.monotonic()
             if remaining <= 0.5:
                 raise BridgeError('clipboard tool timed out')
             try:
                 return self.runner(argv, env, self.uid, self.gid, min(TOOL_TIMEOUT, remaining))
             except BridgeError as exc:
-                # Absent targets and timeouts move on to the next attempt;
-                # the shared budget caps the total. Size violations stop here.
                 if str(exc) == 'clipboard data exceeds size limit':
                     raise
                 failure = exc
+                if str(exc) == 'clipboard tool timed out':
+                    # No further attempts on a hung backend; jump to the next.
+                    index = next((i for i in range(index + 1, len(attempts))
+                                  if attempts[i][0] != backend), len(attempts))
+                else:
+                    index += 1
         raise failure
 
     def handle(self, line):
