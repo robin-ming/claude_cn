@@ -10,9 +10,12 @@ elif sys.argv[1:2] == ['update']:
 elif sys.argv[1:2] == ['network']:
     del sys.argv[1]
     from claude_cn.network import main
+elif sys.argv[1:2] == ['clip']:
+    del sys.argv[1]
+    from claude_cn.clip import main
 elif sys.argv[1:2] == ['launch']:
     del sys.argv[1]
     from claude_cn.broker import main
 else:
-    raise SystemExit('expected proxy, update, network or launch')
+    raise SystemExit('expected proxy, update, network, clip or launch')
 main()
