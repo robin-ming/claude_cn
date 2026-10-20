@@ -225,6 +225,22 @@ class RunToolTests(unittest.TestCase):
                           os.getuid(), os.getgid(), timeout=0.5)
 
 
+class GrantRelayTests(unittest.TestCase):
+    def test_missing_user_and_failed_chown_do_not_raise(self):
+        with mock.patch.object(clip.pwd, 'getpwnam', side_effect=KeyError):
+            clip.grant_relay_access('/nonexistent/clip.sock')
+        with mock.patch.object(clip.pwd, 'getpwnam', side_effect=PermissionError('EPERM')):
+            clip.grant_relay_access('/nonexistent/clip.sock')
+
+    def test_chown_called_with_relay_owner(self):
+        owner = mock.Mock(pw_uid=900, pw_gid=900)
+        with mock.patch.object(clip.pwd, 'getpwnam', return_value=owner) as getpwnam, \
+             mock.patch.object(clip.os, 'chown') as chown:
+            clip.grant_relay_access('/run/claude-cn-clip/clip.sock')
+        getpwnam.assert_called_once_with('claude-cn-proxy')
+        chown.assert_called_once_with('/run/claude-cn-clip/clip.sock', 900, 900)
+
+
 class DaemonEndToEnd(unittest.TestCase):
     def test_unix_socket_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:

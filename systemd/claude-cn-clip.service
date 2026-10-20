@@ -12,8 +12,9 @@ Restart=on-failure
 RestartSec=2
 UMask=0077
 # Drops to the authorized user before running the real clipboard tool and reads
-# session environments from /proc; both need the capabilities kept here.
-CapabilityBoundingSet=CAP_SYS_PTRACE CAP_SETUID CAP_SETGID
+# session environments from /proc. CAP_CHOWN hands the socket to the relay user;
+# CAP_DAC_READ_SEARCH opens the user's 0400 /proc environ files.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_SETUID CAP_SETGID
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateDevices=yes

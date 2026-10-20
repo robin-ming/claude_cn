@@ -321,6 +321,16 @@ class Server(socketserver.ThreadingUnixStreamServer):
             self.slots.release()
 
 
+def grant_relay_access(path):
+    """Hand the socket to the relay user; failure degrades, never crashes."""
+    try:
+        owner = pwd.getpwnam(PROXY_USER)
+        os.chown(path, owner.pw_uid, owner.pw_gid)
+    except (KeyError, OSError) as exc:
+        LOG.warning('cannot hand the socket to %s (%s); the namespace relay cannot connect',
+                    PROXY_USER, exc)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='claude-cn-clip')
     parser.add_argument('--socket', default=SOCKET)
@@ -339,10 +349,6 @@ def main(argv=None):
         pass
     os.umask(0o077)
     with Server(args.socket, context) as server:
-        try:
-            owner = pwd.getpwnam(PROXY_USER)
-            os.chown(args.socket, owner.pw_uid, owner.pw_gid)
-        except KeyError:
-            LOG.warning('%s user missing; the namespace relay cannot connect', PROXY_USER)
+        grant_relay_access(args.socket)
         LOG.info('claude-cn clipboard bridge ready (read-only)')
         server.serve_forever()
