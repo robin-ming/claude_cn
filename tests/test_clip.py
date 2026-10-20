@@ -151,7 +151,7 @@ class ContextTests(unittest.TestCase):
     def test_serves_targets_and_mimes_via_x11(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append((argv, env, uid, gid))
             return b'hello'
 
@@ -170,7 +170,7 @@ class ContextTests(unittest.TestCase):
     def test_x11_text_falls_back_to_utf8_string(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append(argv)
             if len(calls) == 1:
                 raise clip.BridgeError('clipboard tool failed')
@@ -185,7 +185,7 @@ class ContextTests(unittest.TestCase):
     def test_wayland_used_when_x11_backend_fails(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append(argv)
             if '-selection' in argv:
                 raise clip.BridgeError('clipboard tool failed')
@@ -200,8 +200,49 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(any('-selection' in argv for argv in calls))
         self.assertEqual(calls[-1], ['/bin/true', '--type', 'image/png'])
 
+    def test_wayland_used_when_x11_backend_hangs(self):
+        calls = []
+
+        def runner(argv, env, uid, gid, timeout=5):
+            calls.append(argv)
+            if '-selection' in argv:
+                raise clip.BridgeError('clipboard tool timed out')
+            return b'image'
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner,
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'},
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'), mock.patch.object(clip, 'WLPASTE', '/bin/true'):
+            self.assertEqual(context.handle('GET image/png'), b'OK 5\nimage')
+        self.assertEqual(calls[-1], ['/bin/true', '--type', 'image/png'])
+
+    def test_attempts_share_one_request_budget(self):
+        # Reviewer reproduction: several slow failures plus a late success
+        # outrun the client wait. The shared budget must stop the chain first.
+        calls = []
+
+        def runner(argv, env, uid, gid, timeout=5):
+            calls.append(argv)
+            time.sleep(0.35)
+            raise clip.BridgeError('clipboard tool failed')
+
+        context = clip.Context(1000, 1000, '/home/u', runner=runner, allow_text=True,
+                               discover=lambda uid: {'x11': {'DISPLAY': ':0'},
+                                                   'wayland': {'WAYLAND_DISPLAY': 'wayland-0',
+                                                               'XDG_RUNTIME_DIR': '/run/user/1000'}})
+        start = time.monotonic()
+        with mock.patch.object(clip, 'XCLIP', '/bin/true'), mock.patch.object(clip, 'WLPASTE', '/bin/true'), \
+             mock.patch.object(clip, 'REQUEST_BUDGET', 1.2), mock.patch.object(clip, 'TRANSMIT_RESERVE', 0.2):
+            # text/plain spans four attempts (x11, UTF8_STRING, wayland, charset).
+            response = context.handle('GET text/plain')
+        elapsed = time.monotonic() - start
+        self.assertEqual(response, b'ERR clipboard tool timed out\n')
+        self.assertLess(len(calls), 4)
+        self.assertLess(elapsed, 2.5)
+
     def test_x11_failure_without_wayland_reports_error(self):
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             raise clip.BridgeError('clipboard tool failed')
 
         context = clip.Context(1000, 1000, '/home/u', runner=runner,
@@ -212,7 +253,7 @@ class ContextTests(unittest.TestCase):
     def test_charset_and_utf8_string_requests_pass_protocol(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append(argv)
             return b'x'
 
@@ -227,7 +268,7 @@ class ContextTests(unittest.TestCase):
     def test_wayland_plan(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append(argv)
             return b'x'
 
@@ -245,7 +286,7 @@ class ContextTests(unittest.TestCase):
     def test_wayland_text_falls_back_to_charset_variant(self):
         calls = []
 
-        def runner(argv, env, uid, gid):
+        def runner(argv, env, uid, gid, timeout=5):
             calls.append(argv)
             if len(calls) == 1:
                 raise clip.BridgeError('clipboard tool failed')
@@ -293,6 +334,17 @@ class DiscoverEnvTests(unittest.TestCase):
             self.assertEqual(found['wayland']['WAYLAND_DISPLAY'], 'wayland-0')
             empty = clip.discover_env(tmp, uid=65534)
             self.assertEqual(empty, {'x11': None, 'wayland': None})
+
+    def test_single_process_exposing_both_backends(self):
+        # Reviewer reproduction: XWayland sessions carry DISPLAY *and*
+        # WAYLAND_DISPLAY in one environ; both backends must be collected.
+        with tempfile.TemporaryDirectory() as tmp:
+            both = Path(tmp)/'1'
+            both.mkdir()
+            (both/'environ').write_bytes(b'DISPLAY=:0\0WAYLAND_DISPLAY=wayland-0\0XDG_RUNTIME_DIR=/run/user/1000\0')
+            found = clip.discover_env(tmp, uid=os.getuid())
+            self.assertEqual(found['x11']['DISPLAY'], ':0')
+            self.assertEqual(found['wayland']['WAYLAND_DISPLAY'], 'wayland-0')
 
     def test_wayland_only(self):
         with tempfile.TemporaryDirectory() as tmp:

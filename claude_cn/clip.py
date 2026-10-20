@@ -28,6 +28,11 @@ ALLOWED = re.compile(r'\A(?:image/(?:png|jpeg|jpg|gif|webp|bmp)|text/plain(?:;ch
 MAX_BYTES = 16 * 1024 * 1024
 MAX_LINE = 256
 TOOL_TIMEOUT = 5
+# One request gets a single shared budget across every backend/target attempt;
+# the reserve keeps room to write the response back through the relay.
+REQUEST_BUDGET = TOOL_TIMEOUT + 5
+TRANSMIT_RESERVE = 2
+CLIENT_TIMEOUT = REQUEST_BUDGET + 3
 RATE_LIMIT = 30
 RATE_WINDOW = 60
 
@@ -45,7 +50,7 @@ def request(line, connect=None):
     conn = (connect or (lambda: socket.create_connection(ADDRESS, timeout=5)))()
     try:
         conn.sendall(line.encode('ascii') + b'\n')
-        conn.settimeout(TOOL_TIMEOUT + 5)
+        conn.settimeout(CLIENT_TIMEOUT)
         with conn.makefile('rb') as stream:
             header = stream.readline(64)
             parts = header.split()
@@ -158,9 +163,11 @@ def discover_env(proc='/proc', uid=None):
             key, sep, value = item.partition(b'=')
             if sep:
                 session[key.decode('ascii', 'replace')] = value.decode('utf-8', 'replace')
+        # Separate checks: one desktop process may expose both backends
+        # (XWayland), and the Wayland side must not be lost to the X11 one.
         if not found['x11'] and session.get('DISPLAY'):
             found['x11'] = session
-        elif not found['wayland'] and session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR'):
+        if not found['wayland'] and session.get('WAYLAND_DISPLAY') and session.get('XDG_RUNTIME_DIR'):
             found['wayland'] = session
     return found
 
@@ -310,7 +317,12 @@ class Context:
         return [WLPASTE, '--no-newline', '--type', 'text/plain;charset=utf-8']
 
     def fetch(self, mime, sessions):
-        """Try each backend and text target until one yields data."""
+        """Try each backend and text target until one yields data.
+
+        Every attempt draws from one shared request budget, so fallbacks can
+        never outlast the client's wait; a hung backend yields to the next
+        within whatever budget remains.
+        """
         attempts = []
         for backend in self.backends(sessions):
             argv, env = tool_plan(mime, sessions[backend], self.home, backend)
@@ -320,15 +332,21 @@ class Context:
                 attempts.append((alternative, env))
         if not attempts:
             raise BridgeError('no clipboard tool for this session')
-        for index, (argv, env) in enumerate(attempts):
+        deadline = time.monotonic() + REQUEST_BUDGET - TRANSMIT_RESERVE
+        failure = BridgeError('clipboard tool failed')
+        for argv, env in attempts:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.5:
+                raise BridgeError('clipboard tool timed out')
             try:
-                return self.runner(argv, env, self.uid, self.gid)
+                return self.runner(argv, env, self.uid, self.gid, min(TOOL_TIMEOUT, remaining))
             except BridgeError as exc:
-                # Only an absent target justifies the next attempt; timeouts
-                # and size violations must not trigger further tool runs.
-                if str(exc) != 'clipboard tool failed' or index == len(attempts) - 1:
+                # Absent targets and timeouts move on to the next attempt;
+                # the shared budget caps the total. Size violations stop here.
+                if str(exc) == 'clipboard data exceeds size limit':
                     raise
-        raise BridgeError('clipboard tool failed')
+                failure = exc
+        raise failure
 
     def handle(self, line):
         """Return the raw response bytes for one request line."""
@@ -365,7 +383,7 @@ class Context:
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         try:
-            self.connection.settimeout(TOOL_TIMEOUT + 5)
+            self.connection.settimeout(CLIENT_TIMEOUT)
             line = self.rfile.readline(MAX_LINE + 2)
         except OSError:
             return
