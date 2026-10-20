@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from .runtime import expand_path, find_claude, read_runtime, write_settings
 
-VERSION = '0.4.7'
+VERSION = '0.4.8'
 BROKER_SOCKET = Path('/run/claude-cn-launch/control.sock')
 SHARE = Path('/usr/share/claude-cn')
 

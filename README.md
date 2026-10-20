@@ -6,11 +6,11 @@
 
 ## 安装
 
-本机包 `claude-cn_0.4.7+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.4.7_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
+本机包 `claude-cn_0.4.8+local1_all.deb` 带你授权复制的临时智谱配置；通用包 `claude-cn_0.4.8_all.deb` 只有空 Key 模板。两者只能选一个安装，包名均为 `claude-cn`。
 
 ```bash
 cd ~/Storage/Project/claude_cn
-sudo apt install ./dist/claude-cn_0.4.7+local1_all.deb
+sudo apt install ./dist/claude-cn_0.4.8+local1_all.deb
 sudo claude-cn-admin setup --user robin
 claude-cn doctor
 claude-cn --version
