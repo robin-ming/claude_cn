@@ -1,3 +1,29 @@
+# 验证记录：0.4.7
+
+## 本次变更（六轮评审：剪贴板出站封堵 + IP 库校验 + 真实出口验收）
+
+- 剪贴板守护的宿主联网路径封堵（三层）：`local_display()` 拒绝带主机名的 DISPLAY（TCP 显示）；`discover_env()` 仅采信与守护同网络命名空间（`ns/net` inode 一致）的进程环境，沙箱进程与授权用户同 uid 但处于独立 netns，其伪造的 DISPLAY/WAYLAND_DISPLAY 不被采信（netns 过滤对非 /proc 树自动关闭以兼容测试）；单元 `RestrictAddressFamilies=AF_UNIX` 内核级禁止守护及子进程创建网络 socket。新增"远程 DISPLAY 拒绝"与"沙箱命名空间环境忽略"测试（后者用符号链接构造同/异 netns 假进程树）。
+- IP 库更新校验：`parse_list` 先 `collapse_addresses` 去重合并再校验最少条数（评审复现：1000 条重复满足"至少 1000 条"）；新增 `check_plausible()` 按地址族对比新旧库覆盖空间，族内缩减过半（<0.5×）或膨胀逾两倍（>2×）即拒绝并保留旧库；main 在旧库存在且可解析时执行该守门。新增重复计数与覆盖突变（萎缩/膨胀/缺 v6）测试。
+- 真实命名空间出口矩阵（本 claude-cn 会话内实测，AF_INET 裸 socket 不经代理变量）：
+
+| 访问方式 | 应有 | 实测 |
+|---|---|---|
+| 直连大陆 IPv4（baidu 39.156.70.46、zhipu 39.106.105.100:443） | 允许 | 连接成功 |
+| 直连大陆 IPv6（baidu 2409:8c00:…:f003:443） | 允许 | 连接成功 |
+| 直连境外 IPv4（1.1.1.1:443） | 拒绝 | errno 113（v4 规则拒绝可表现为 EHOSTUNREACH；0.2.0 轮已用 admin-prohibited ICMP 反馈严格确证，此处与 v6/代理结果互证） |
+| 直连境外 IPv6（2606:4700:4700::1111:443） | 拒绝 | errno 13 EACCES |
+| 绕过代理变量直连（裸 socket） | 仍受限 | 同上两行，未经过任何代理 |
+| 经代理白名单域名（github.com:443 CONNECT） | 允许 | 200 Connection Established |
+| 经代理其他境外（example.com:443 CONNECT） | 拒绝 | 403 Forbidden |
+
+## 安装前验证
+
+- 单元测试 81 项（新增 4 项：远程 DISPLAY、沙箱 netns 忽略、重复计数、覆盖突变）：会话内 70 项通过，11 项 AF_UNIX 限制类错误集合不变；上轮评审方会话外 77/77，本轮 +4 待复核。
+- `systemd-analyze verify` 通过（AF_UNIX 收紧后语法有效）；`verify_deb.py` 双包全过，校验和更新于 `dist/SHA256SUMS`。
+- 评审说明已采纳：IP 库守门能发现明显异常，不保证所有 IP 归属绝对准确。待真实桌面实贴验收。
+
+以下为 0.4.6 验证记录。
+
 # 验证记录：0.4.6
 
 ## 本次变更（0.4.5 五轮评审修复）
