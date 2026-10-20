@@ -136,11 +136,22 @@ def session(conn, uid, runner=enter):
 
 def serve(listener, uid, runner=enter):
     children = set()
-    while True:
+
+    def collect():
         for pid in list(children):
             if os.waitpid(pid, os.WNOHANG)[0]:
                 children.remove(pid)
-        conn, _ = listener.accept()
+
+    # Sessions that end while the broker waits in accept() must not stay
+    # counted against MAX_SESSIONS; poll briefly instead of blocking forever.
+    listener.settimeout(1)
+    while True:
+        try:
+            conn, _ = listener.accept()
+        except socket.timeout:
+            collect()
+            continue
+        collect()
         _, peer_uid, _ = struct.unpack('3i', conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         if peer_uid != uid or len(children) >= MAX_SESSIONS:
             conn.close()
