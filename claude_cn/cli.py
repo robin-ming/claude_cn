@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from .runtime import expand_path, find_claude, read_runtime, write_settings
 
-VERSION = '0.4.8'
+VERSION = '0.5.0'
 BROKER_SOCKET = Path('/run/claude-cn-launch/control.sock')
 SHARE = Path('/usr/share/claude-cn')
 
@@ -67,6 +67,7 @@ def doctor():
         print(('PASS ' if ok else 'FAIL ') + label + (': ' + detail if detail else ''))
         failed |= not ok
     runtime = read_runtime()
+    print('INFO 默认运行模式：' + runtime['mode'])
     try:
         binary = find_claude(runtime['claude_path'])
         check('Claude 程序入口', True, binary)
@@ -108,6 +109,11 @@ def main():
             return init(args[1:])
         if args[:1] == ['configure']:
             return configure(args[1:])
+        if args[:1] == ['mode']:
+            if len(args) != 1:
+                raise ValueError('使用 sudo claude-cn-admin mode development|strict 切换模式')
+            print(read_runtime()['mode'])
+            return
         if args[:1] == ['doctor']:
             return doctor()
         if args[:1] == ['version']:
@@ -117,6 +123,7 @@ def main():
             print('claude-cn：通用 Claude Code 供应商与网络控制工具（默认智谱）\n'
                   '  init [--from 文件]       初始化独立供应商配置\n'
                   '  configure [--base-url URL] [--model 名称]  修改供应商 / Key / 模型\n'
+                  '  mode                     显示默认模式；sudo claude-cn-admin mode development|strict 切换\n'
                   '  doctor                   检查运行路径、配置和服务\n'
                   '  self-test                验证网络边界（不调用模型）\n'
                   '  version                  显示本项目版本\n'

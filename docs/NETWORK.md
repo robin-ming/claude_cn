@@ -1,5 +1,13 @@
 # 网络架构与宿主机影响
 
+## 运行模式
+
+`runtime.json` 的 `mode` 支持 `strict`（默认）和 `development`。管理员通过 `sudo claude-cn-admin mode development|strict` 切换，新会话读取，已有会话不变。两种模式保留相同的网络命名空间、DNS、nftables 和代理规则。
+
+开发模式不安装额外 seccomp 或 NoNewPrivs，允许当前用户使用宿主 Unix socket、调试、io_uring 和常规提权工具。继承桌面、Agent、开发工具等环境变量，但仍过滤加载器、Python、Claude/Anthropic 和代理变量。变量只作为数据传输，降权前不执行用户代码。恢复宿主 IPC 和提权后，不保证防止间接联网绕过。宿主 localhost 与会话 localhost 仍然隔离。
+
+开发模式不前置 xclip/wl-paste 垫片，原生剪贴板完整放开，包括写入、primary、任意类型，不受桥接限制。下文涉及 seccomp 和剪贴板桥接的限制仅适用于严格模式。
+
 
 ```text
 claude-cn → 本机 socket → root 启动服务 → 降权后运行当前版本 Claude

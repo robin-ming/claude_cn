@@ -16,6 +16,22 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(config['settings_path'], '~/.config/claude-cn/settings.json')
             self.assertNotIn('claude-glm', json.dumps(config))
 
+    def test_mode_upgrade_default_validation_and_atomic_switch(self):
+        from claude_cn.admin import set_mode
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'runtime.json'
+            path.write_text(json.dumps({'claude_path': '/opt/claude'}))
+            self.assertEqual(read_runtime(path)['mode'], 'strict')
+            for mode in ('development', 'strict'):
+                set_mode(mode, path)
+                self.assertEqual(read_runtime(path)['mode'], mode)
+                self.assertEqual(read_runtime(path)['claude_path'], '/opt/claude')
+                self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+            for invalid in ('dev', '', None, [], 1):
+                path.write_text(json.dumps({'mode': invalid}))
+                with self.assertRaises(ValueError):
+                    read_runtime(path)
+
     def test_stable_entry_survives_version_upgrade(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

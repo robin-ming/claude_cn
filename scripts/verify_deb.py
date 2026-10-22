@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 """Non-root package validation; never prints credentials or changes the host."""
+import argparse
 import hashlib
 import io
 import json
@@ -62,19 +63,23 @@ def verify(path, private, token):
 
 
 def main():
-    token = json.loads((ROOT/'config/zhipu.local.json').read_text())['env']['ANTHROPIC_AUTH_TOKEN']
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--public-only', action='store_true', help='仅验证通用包，不读取私有配置')
+    args = parser.parse_args()
+    token = '' if args.public_only else json.loads((ROOT/'config/zhipu.local.json').read_text())['env']['ANTHROPIC_AUTH_TOKEN']
     public = ROOT/f'dist/claude-cn_{VERSION}_all.deb'
     private = ROOT/f'dist/claude-cn_{VERSION}+local1_all.deb'
     verify(public, False, token)
-    verify(private, True, token)
-    assert private.stat().st_mode & 0o777 == 0o600
+    if not args.public_only:
+        verify(private, True, token)
+        assert private.stat().st_mode & 0o777 == 0o600
     sys.path.insert(0, str(ROOT))
     from scripts.build_deb import build
     with tempfile.TemporaryDirectory() as tmp:
         rebuilt = build(tmp)
         assert public.read_bytes() == rebuilt.read_bytes(), 'public build is not reproducible'
     print('PASS reproducible public build')
-    checksums = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in (public, private))
+    checksums = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in ((public,) if args.public_only else (public, private)))
     (ROOT/'dist/SHA256SUMS').write_text(checksums)
 
 

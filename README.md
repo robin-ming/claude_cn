@@ -6,7 +6,7 @@
 
 大陆 IP 直接访问 · 境外目标按白名单放行 · 独立供应商配置
 
-[![Version](https://img.shields.io/badge/version-0.4.8-2563eb?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-2563eb?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776ab?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Linux](https://img.shields.io/badge/platform-Linux-334155?style=flat-square&logo=linux&logoColor=white)](#快速开始)
 [![License: MIT](https://img.shields.io/badge/license-MIT-16a34a?style=flat-square)](LICENSE)
@@ -60,7 +60,7 @@ make deb
 在准备运行 Claude Code 的普通用户终端中执行：
 
 ```bash
-sudo apt install ./dist/claude-cn_0.4.8_all.deb
+sudo apt install ./dist/claude-cn_0.5.0_all.deb
 sudo claude-cn-admin setup --user "$(id -un)"
 
 claude-cn configure       # 隐藏输入供应商 API Key
@@ -123,6 +123,30 @@ sudo claude-cn-admin reload
 
 ## 配置指南
 
+### 开发模式与严格模式
+
+升级后默认继续使用 **严格模式**；旧 runtime.json 未填写 `mode` 时也按严格模式处理。
+
+```bash
+claude-cn mode                            # 查看默认模式
+sudo claude-cn-admin mode development      # 切换开发模式，下次启动生效
+sudo claude-cn-admin mode strict           # 恢复严格模式，下次启动生效
+```
+
+| 功能 | 开发模式 `development` | 严格模式 `strict` |
+| :--- | :--- | :--- |
+| 网络命名空间、出口白名单、HTTP 代理 | 保留 | 保留 |
+| Docker socket、SSH/GPG Agent、桌面 IPC | 允许，受当前用户权限约束 | 禁止创建 Unix socket |
+| 调试、io_uring、提权工具 | 不附加 seccomp / NoNewPrivs 限制 | 保留原有系统调用与提权限制 |
+| 终端环境变量 | 继承开发工具、桌面、凭据等变量 | 只继承终端、语言、PATH 等少量变量 |
+| 剪贴板 | 原生工具，完整读写，不加类型、大小、频率或 primary 限制 | 只读桥接，文本默认关闭 |
+
+开发模式不会前置剪贴板垫片，不依赖剪贴板桥接服务；实际能力由宿主桌面会话、工具及用户权限决定。两种模式均清理继承的加载器、Python、Claude/Anthropic 和代理变量，供应商继续由独立配置提供。`PATH` 保留；`PYTHONPATH` 等 Python 启动变量不继承，可在会话内为具体工具设置。
+
+**开发模式控制常规网络出口，不保证阻止主动绕过。** Docker、宿主 IPC 和提权能力可能让程序借宿主服务间接联网。两种模式仍使用独立网络命名空间：宿主 `127.0.0.1` 服务不会自动可达，开发服务器对外访问也仍需相应监听和路由配置。
+
+模式由管理员写入 `/etc/claude-cn/runtime.json` 的 `mode` 字段，只影响新会话，无需重启服务；已有会话保持原模式。当前会话模式可用 `echo "$CLAUDE_CN_MODE"` 查看。
+
 ### 切换供应商与模型
 
 默认 API 为 `https://open.bigmodel.cn/api/anthropic`，模型为 `glm-5.3[1m]`。也可改为其他 Claude Code 支持的供应商接口：
@@ -177,7 +201,9 @@ claude-cn configure
 
 ## 剪贴板粘贴
 
-支持通过只读桥接向 Claude Code 粘贴截图。**图片默认开放，桥接的文字读取默认关闭。** 在 `/etc/claude-cn/policy.json` 中将 `allow_clipboard_text` 改为 `true` 后，重启服务：
+开发模式使用宿主原生剪贴板，支持完整读写。以下限制只适用于严格模式。
+
+严格模式支持通过只读桥接向 Claude Code 粘贴截图。**图片默认开放，桥接的文字读取默认关闭。** 在 `/etc/claude-cn/policy.json` 中将 `allow_clipboard_text` 改为 `true` 后，重启服务：
 
 ```bash
 sudo systemctl restart claude-cn-clip.service
@@ -235,11 +261,11 @@ sudo apt purge claude-cn      # 另清除系统配置和 IP 缓存，保留用�
 
 ## 工作原理与边界
 
-启动请求经本机 Unix socket 交给 root broker，由内核对端 UID 核验注册用户。启动子进程检查网络边界、进入命名空间并设置 DNS，随后降回用户身份、安装 seccomp，最后运行 Claude Code。服务或边界缺失时拒绝启动。
+启动请求经本机 Unix socket 交给 root broker，由内核对端 UID 核验注册用户。启动子进程检查网络边界、进入命名空间并设置 DNS，随后降回用户身份，严格模式安装 seccomp，最后运行 Claude Code。服务或边界缺失时拒绝启动。
 
 网络通过专用 veth、双栈 NAT 和 nftables 工作；会按需启用宿主转发并保留 IPv6 RA 行为，停止时尝试恢复原值。规则匹配项目接口，不清空其他防火墙规则，也不修改宿主默认代理。更多细节见 [网络架构](docs/NETWORK.md)。
 
-**这是网络出口控制工具，不是完整文件沙箱。** Claude 仍拥有运行用户的文件权限。seccomp 限制部分宿主 IPC 与进程注入接口，但不能替代完整的文件、进程和内容隔离。宿主的其他进程不会自动受到这套出口策略约束。
+**这是网络出口控制工具，不是完整文件沙箱。** Claude 仍拥有运行用户的文件权限。严格模式的 seccomp 限制部分宿主 IPC 与进程注入接口，但不能替代完整的文件、进程和内容隔离。宿主的其他进程不会自动受到这套出口策略约束。
 
 ## 开发与构建
 
@@ -249,7 +275,7 @@ make test
 make deb
 ```
 
-请在 claude-cn 会话外的普通终端执行 `make test`；会话内的 AF_UNIX 创建限制会使部分测试失败。单元测试不替代真实系统上的网络与桌面验收。
+请在 claude-cn 会话外的普通终端执行 `make test`；严格模式会话内的 AF_UNIX 创建限制会使部分测试失败。单元测试不替代真实系统上的网络与桌面验收。
 
 构建采用文件白名单，不包含用户 HOME 或 Claude 私有二进制。公共包使用空 Key 模板。
 

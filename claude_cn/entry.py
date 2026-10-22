@@ -18,6 +18,37 @@ ENV_NAMES = {'PATH', 'TERM', 'COLORTERM', 'LANG', 'LANGUAGE', 'TZ', 'EDITOR',
              'VISUAL', 'NO_COLOR', 'FORCE_COLOR', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'}
 
 
+def allowed_env(name, mode='strict'):
+    if not isinstance(name, str) or not name or '\x00' in name or '=' in name:
+        return False
+    if mode == 'strict':
+        return name in ENV_NAMES or name.startswith('LC_')
+    # The Python payload starts after dropping UID, but keep its loader and
+    # provider configuration predictable. Development tools retain other vars.
+    return (not name.startswith(('LD_', 'DYLD_', 'PYTHON', 'ANTHROPIC_', 'CLAUDE_'))
+            and name.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')
+            and name not in ('HOME', 'USER', 'LOGNAME'))
+
+
+def session_env(supplied, runtime, account, namespace):
+    # Refilter using the authoritative mode even if the client supplied a
+    # development environment immediately before an administrator switched modes.
+    env = {k: v for k, v in supplied.items() if allowed_env(k, runtime['mode'])}
+    env.update(HOME=account.pw_dir, USER=account.pw_name, LOGNAME=account.pw_name,
+               CLAUDE_CN_ACTIVE='1', CLAUDE_CN_MODE=runtime['mode'], CLAUDE_CN_EXPECTED_NS=str(namespace),
+               CLAUDE_CN_SETTINGS=str(expand_path(runtime['settings_path'], account.pw_dir)),
+               CLAUDE_CN_EXECUTABLE=runtime['claude_path'])
+    env.setdefault('PATH', '/usr/local/bin:/usr/bin:/bin')
+    # Only strict mode uses the constrained clipboard bridge.
+    if runtime['mode'] == 'strict':
+        env['PATH'] = SANDBOX_BIN + ':' + env['PATH']
+    env.setdefault('TERM', 'xterm-256color')
+    for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
+        env[key] = PROXY
+    env.update(NO_PROXY='', no_proxy='')
+    return env
+
+
 def fail(message):
     raise SystemExit('claude-cn: ' + message)
 
@@ -31,7 +62,7 @@ def enter(request, args, uid, stdio, tty=False):
         fail('working directory must be absolute')
     supplied = request['env']
     if any(not isinstance(k, str) or not isinstance(v, str) or '\x00' in v or
-           (k not in ENV_NAMES and not k.startswith('LC_')) for k, v in supplied.items()):
+           not allowed_env(k, 'development') for k, v in supplied.items()):
         fail('unsupported environment variable')
     for unit in ('claude-cn-netns.service', 'claude-cn-proxy.service', 'claude-cn-relay.service'):
         if subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', unit],
@@ -68,20 +99,7 @@ def enter(request, args, uid, stdio, tty=False):
         raise OSError(ctypes.get_errno(), 'bind namespace resolv.conf')
     if libc.mount(None, target, None, 4096 | 32 | 1, None):  # MS_BIND|MS_REMOUNT|MS_RDONLY
         raise OSError(ctypes.get_errno(), 'protect namespace resolv.conf')
-    # Discard caller credentials/proxy/loader variables; settings.json remains the
-    # source of GLM credentials. Nothing supplied by the caller is executed as root.
-    env = dict(supplied)
-    env.update(HOME=account.pw_dir, USER=account.pw_name, LOGNAME=account.pw_name,
-               CLAUDE_CN_ACTIVE='1', CLAUDE_CN_EXPECTED_NS=str(os.stat('/proc/self/ns/net').st_ino),
-               CLAUDE_CN_SETTINGS=str(expand_path(runtime['settings_path'], account.pw_dir)),
-               CLAUDE_CN_EXECUTABLE=runtime['claude_path'])
-    env.setdefault('PATH', '/usr/local/bin:/usr/bin:/bin')
-    # Clipboard shims must shadow any host xclip/wl-paste inside the sandbox.
-    env['PATH'] = SANDBOX_BIN + ':' + env['PATH']
-    env.setdefault('TERM', 'xterm-256color')
-    for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
-        env[key] = PROXY
-    env.update(NO_PROXY='', no_proxy='')
+    env = session_env(supplied, runtime, account, os.stat('/proc/self/ns/net').st_ino)
     os.initgroups(account.pw_name, account.pw_gid)
     os.setgid(account.pw_gid)
     os.setuid(uid)
@@ -96,6 +114,6 @@ def enter(request, args, uid, stdio, tty=False):
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
     os.chdir(cwd)
     close_extra_fds()
-    install_guard()
+    install_guard(runtime['mode'])
     os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', str(ROOT / 'payload.py'),
                                   *args], env)

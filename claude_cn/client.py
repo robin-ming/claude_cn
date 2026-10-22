@@ -12,7 +12,8 @@ import termios
 import tty
 
 from .broker import MAX_PACKET, SIGNALS, SOCKET
-from .entry import ENV_NAMES
+from .entry import allowed_env
+from .runtime import read_runtime
 
 
 def write_all(fd, data):
@@ -28,8 +29,9 @@ def verify_server(conn):
 
 
 def launch(args, address=SOCKET):
+    mode = read_runtime()['mode']
     request = {'cwd': os.getcwd(), 'env': {k: v for k, v in os.environ.items()
-               if k in ENV_NAMES or k.startswith('LC_')}, 'args': args,
+               if allowed_env(k, mode)}, 'args': args,
                'tty': all(os.isatty(fd) for fd in (0, 1, 2))}
     raw = json.dumps(request, ensure_ascii=True).encode()
     if len(raw) > MAX_PACKET:

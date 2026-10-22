@@ -11,7 +11,13 @@ class Comparison(ctypes.Structure):
                 ('datum_a', ctypes.c_uint64), ('datum_b', ctypes.c_uint64)]
 
 
-def install():
+def install(mode='strict'):
+    if mode not in ('strict', 'development'):
+        raise ValueError('invalid runtime mode')
+    if mode == 'development':
+        # Network namespace/nftables remain enforced by entry. Host IPC and
+        # debugging are intentionally available; no anti-bypass guarantee.
+        return
     library = ctypes.util.find_library('seccomp')
     if not library:
         raise RuntimeError('libseccomp is required; refusing to run without it')

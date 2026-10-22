@@ -1,4 +1,5 @@
 {
   "claude_path": "auto",
-  "settings_path": "~/.config/claude-cn/settings.json"
+  "settings_path": "~/.config/claude-cn/settings.json",
+  "mode": "strict"
 }

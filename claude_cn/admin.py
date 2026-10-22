@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import pwd
 import subprocess
+import tempfile
 
 from .runtime import expand_path, read_runtime, write_settings
 
@@ -75,6 +76,23 @@ def setup(user):
     print('运行 claude-cn doctor 和 claude-cn self-test；API Key 为空时先运行 claude-cn configure。')
 
 
+def set_mode(mode, path=Path('/etc/claude-cn/runtime.json')):
+    if mode not in ('development', 'strict'):
+        raise ValueError('invalid runtime mode')
+    data = read_runtime(path)
+    data['mode'] = mode
+    fd, temporary = tempfile.mkstemp(prefix='.runtime-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(data, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    print('默认模式已设为：' + mode + '；下次启动生效，已有会话保持原模式。')
+
+
 def reset():
     run(['/usr/bin/systemctl', 'stop', 'claude-cn-launch.service', 'claude-cn-update.timer', 'claude-cn-update.service',
          'claude-cn-relay.service', 'claude-cn-clip-relay.service', 'claude-cn-clip.service',
@@ -90,6 +108,8 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     setup_parser = sub.add_parser('setup')
     setup_parser.add_argument('--user', required=True)
+    mode_parser = sub.add_parser('mode')
+    mode_parser.add_argument('mode', choices=('development', 'strict'))
     sub.add_parser('reset')
     sub.add_parser('reload')
     args = parser.parse_args()
@@ -97,6 +117,8 @@ def main():
         parser.error('请使用 sudo 执行系统管理命令')
     if args.action == 'setup':
         setup(args.user)
+    elif args.action == 'mode':
+        set_mode(args.mode)
     elif args.action == 'reset':
         reset()
     else:

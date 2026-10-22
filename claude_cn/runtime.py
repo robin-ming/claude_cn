@@ -5,7 +5,8 @@ from pathlib import Path
 import shutil
 import tempfile
 
-DEFAULT_RUNTIME = {'claude_path': 'auto', 'settings_path': '~/.config/claude-cn/settings.json'}
+DEFAULT_RUNTIME = {'claude_path': 'auto', 'settings_path': '~/.config/claude-cn/settings.json',
+                   'mode': 'strict'}
 
 
 def expand_path(value, home):
@@ -26,10 +27,12 @@ def read_runtime(path='/etc/claude-cn/runtime.json'):
     except FileNotFoundError:
         return data
     if not isinstance(supplied, dict) or set(supplied) - set(data):
-        raise ValueError('runtime.json 仅支持 claude_path 和 settings_path')
+        raise ValueError('runtime.json 仅支持 claude_path、settings_path 和 mode')
     data.update(supplied)
     if any(not isinstance(v, str) or not v for v in data.values()):
         raise ValueError('运行路径配置不能为空')
+    if data['mode'] not in ('strict', 'development'):
+        raise ValueError('mode 必须为 strict 或 development')
     return data
 
 

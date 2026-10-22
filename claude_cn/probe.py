@@ -16,6 +16,8 @@ def main():
         if not ok:
             failed.append(name)
 
+    development = os.environ.get('CLAUDE_CN_MODE') == 'development'
+    print('mode:', 'development' if development else 'strict')
     print('namespace:', os.readlink('/proc/self/ns/net'))
     for family, target in ((socket.AF_INET, ('223.5.5.5', 53)),
                            (socket.AF_INET6, ('2400:3200::1', 53, 0, 0))):
@@ -62,9 +64,9 @@ def main():
             record('foreign direct UDP rejected', False)
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM):
-            record('host Unix sockets blocked', False)
+            record('Unix socket mode policy', development)
     except OSError as exc:
-        record('host Unix sockets blocked', exc.errno == errno.EPERM)
+        record('Unix socket mode policy', not development and exc.errno == errno.EPERM)
     with socket.socket() as sock:
         sock.settimeout(5)
         try:

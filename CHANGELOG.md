@@ -1,3 +1,11 @@
+# 0.5.0 — 开发模式与严格模式
+
+- 新增管理员切换命令 `claude-cn-admin mode development|strict`，`claude-cn mode` 查询默认模式，doctor 显示模式；新会话生效，旧配置默认严格模式。
+- 开发模式保留网络出口规则，恢复 Unix socket、调试、io_uring、常规提权及开发工具环境；过滤加载器、Python、供应商和代理启动变量。
+- 开发模式使用原生剪贴板，完整开放读写和 primary，不受只读桥接的 MIME、大小和限速约束。
+- 严格模式保留原有 seccomp、NoNewPrivs、环境过滤和只读剪贴板桥接。自检按当前模式检查 Unix socket。
+- 开发模式不提供同等强度的防绕过保证；宿主 localhost 仍因网络命名空间隔离。
+
 # Changelog
 
 ## 0.4.8

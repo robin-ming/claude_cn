@@ -125,6 +125,19 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), 'None None None')
 
+    def test_development_client_forwards_tool_environment_over_real_broker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.start_server(tmp)
+            script = 'import os;print(os.getenv("SSH_AUTH_SOCK"),os.getenv("VIRTUAL_ENV"),os.getenv("ANTHROPIC_AUTH_TOKEN"))'
+            command = self.client_command(path, script)
+            command[2] = command[2].replace('launch([',
+                'patch("claude_cn.client.read_runtime",return_value={"mode":"development"}).start();launch([')
+            with patch.dict(os.environ, {'SSH_AUTH_SOCK': '/tmp/test-agent', 'VIRTUAL_ENV': '/tmp/test-venv',
+                                        'ANTHROPIC_AUTH_TOKEN': 'secret-test-only'}):
+                result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), '/tmp/test-agent /tmp/test-venv None')
+
     def test_signal_forwarding(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.start_server(tmp)

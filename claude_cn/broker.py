@@ -10,7 +10,7 @@ import stat
 import struct
 import time
 
-from .entry import ENV_NAMES, INSTALL_CONFIG, enter
+from .entry import allowed_env, INSTALL_CONFIG, enter
 
 SOCKET = '/run/claude-cn-launch/control.sock'
 MAX_PACKET = 65536
@@ -27,7 +27,7 @@ def validate(request):
     env = request['env']
     if not isinstance(env, dict) or any(not isinstance(k, str) or not isinstance(v, str) or
             '\x00' in k or '\x00' in v or '=' in k or
-            (k not in ENV_NAMES and not k.startswith('LC_')) for k, v in env.items()):
+            not allowed_env(k, 'development') for k, v in env.items()):
         raise ValueError('invalid environment')
     if not isinstance(request['args'], list) or any(not isinstance(a, str) or '\x00' in a for a in request['args']):
         raise ValueError('invalid arguments')
